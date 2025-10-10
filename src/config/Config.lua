@@ -27,7 +27,7 @@ Config.COLORS = {
     BACKGROUND = {0.153, 0.173, 0.298, 1}, -- #252C4C
     GRID_LINES = {1, 1, 1, 0},        -- White grid fully transparent
     GRID_BACKGROUND = {0.153, 0.173, 0.298, 1}, -- #252C4C
-    HOVER_TILE = {1, 1, 1, 0},          -- White hover effect (0% opacity)
+    HOVER_TILE = {1, 1, 1, 0.05},          -- White hover effect (5% opacity)
     SELECTED_TILE = {1, 1, 1, 0.0}        -- White selection (5% opacity)
 }
 
@@ -136,6 +136,16 @@ Config.DECK = {
         HEAD_SIZE = 10,
         CURVE_STRENGTH = 0.28, -- stronger curvature factor relative to distance
         FLIP_TWEEN_DURATION = 0.12 -- seconds to animate side flip
+    },
+    -- Fan layout settings for the hand (Slay the Spire-style)
+    FAN = {
+        RADIUS = 520,              -- Base radius of the fan arc (pixels)
+        MAX_SPREAD_DEG = 80,       -- Max total spread angle across the hand
+        MIN_SPREAD_DEG = 16,       -- Minimum total spread when very few cards
+        PER_CARD_SPREAD_DEG = 14,  -- Increment of spread per additional card
+        ROTATION_SCALE = 1,        -- 1 = tangent to the arc, <1 reduces tilt
+        BASELINE_OFFSET_Y = 12,    -- Offset (pixels) to nudge baseline up/down
+        HOVER_LIFT = 22            -- How much a hovered/dragged card lifts visually
     }
 }
 

@@ -118,10 +118,23 @@ end
 
 function Game:mousemoved(x, y, dx, dy)
     local gameX, gameY = ResolutionManager:screenToGame(x, y)
+    local handled = false
     if self.handUI then
-        self.handUI:mousemoved(gameX, gameY, dx, dy)
+        handled = self.handUI:mousemoved(gameX, gameY, dx, dy) or false
     end
-    self.gridMap:mousemoved(gameX, gameY, dx, dy)
+    -- While dragging a card, restrict hover to eligible tiles
+    if self.handUI and self.handUI.drag and self.handUI.drag.active then
+        local tile = self.gridMap:getTileAtPosition(gameX, gameY)
+        local eligible = false
+        if tile then
+            -- For now, only crossbow tower placement is supported
+            -- Eligibility: must be build spot and not occupied
+            eligible = self.gridMap:isBuildSpot(tile.x, tile.y) and (not self.gridMap:isOccupied(tile.x, tile.y))
+        end
+        self.gridMap:setHoverFromPlacement(tile, eligible)
+    else
+        self.gridMap:mousemoved(gameX, gameY, dx, dy)
+    end
 end
 
 function Game:mousereleased(x, y, button)

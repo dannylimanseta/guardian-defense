@@ -25,7 +25,11 @@ function HandUI:new(deckManager)
         lockStartY = 0,
         lockTargetX = 0,
         lockTargetY = 0,
-        lockTweenDur = (Config.DECK and Config.DECK.CARD_LOCK_TWEEN_DURATION) or 0.12
+        lockTweenDur = (Config.DECK and Config.DECK.CARD_LOCK_TWEEN_DURATION) or 0.12,
+        -- smooth follow to avoid snap on drag start
+        smoothX = nil,
+        smoothY = nil,
+        followSpeed = 16
     }
     self.arrowState = {
         side = 1, -- 1 or -1 for curve side
@@ -34,6 +38,17 @@ function HandUI:new(deckManager)
         tweenDur = (Config.DECK.ARROW and Config.DECK.ARROW.FLIP_TWEEN_DURATION) or 0.1
     }
     self.cardTemplate = nil
+    self.hoverIndex = nil
+    self.mouseX, self.mouseY = 0, 0
+    -- layout tweening and play-out animation state
+    self.cardStates = {} -- [key] = { x,y,rot, fromX,fromY,fromRot, toX,toY,toRot, t, dur, alpha }
+    self.playAnimations = {} -- [key] = { id, startX,startY,rot, t, dur, slide }
+    self.layoutTweenDur = 0.2
+    self.layoutEase = 'smoothstep'
+    self.lastHandIds = {}
+    self.handKeys = {}
+    self.indexToKey = {}
+    self.nextKeyId = 1
     return self
 end
 
@@ -48,38 +63,213 @@ local function layoutHand()
     return w, h, margin, cw, ch, spacing, y
 end
 
+local function easeValue(u, mode)
+    if mode == 'smoothstep' then
+        return u * u * (3 - 2 * u)
+    end
+    return u
+end
+
+local function shallowCopyList(src)
+    local out = {}
+    for i = 1, #src do out[i] = src[i] end
+    return out
+end
+
+local function buildIdQueues(ids)
+    local q = {}
+    for i = 1, #ids do
+        local id = ids[i]
+        local list = q[id]
+        if not list then list = {}; q[id] = list end
+        list[#list+1] = i
+    end
+    return q
+end
+
+function HandUI:reconcileHandKeys(oldIds, oldKeys, newIds)
+    local newKeys = {}
+    local queues = buildIdQueues(oldIds)
+    for j = 1, #newIds do
+        local id = newIds[j]
+        local list = queues[id]
+        if list and #list > 0 then
+            local oldIndex = table.remove(list, 1)
+            newKeys[j] = oldKeys[oldIndex]
+        else
+            newKeys[j] = self.nextKeyId
+            self.nextKeyId = self.nextKeyId + 1
+        end
+    end
+    return newKeys
+end
+
+function HandUI:startLayoutTween()
+    local hand = self.deck:getHand()
+    local n = #hand
+    -- build/align stable keys for duplicates
+    self.handKeys = self:reconcileHandKeys(self.lastHandIds, self.handKeys, hand)
+    -- Prepare target transforms per key
+    for i = 1, n do
+        local key = self.handKeys[i]
+        self.indexToKey[i] = key
+        local isHovered = (not self.drag.active) and (self.hoverIndex == i)
+        local cx, cy, rot = self:getCardTransform(i, n, isHovered)
+        local st = self.cardStates[key] or {}
+        st.fromX = st.x or cx
+        st.fromY = st.y or cy
+        st.fromRot = st.rot or rot
+        st.toX = cx
+        st.toY = cy
+        st.toRot = rot
+        st.t = 0
+        st.dur = self.layoutTweenDur or 0.2
+        st.x = st.fromX
+        st.y = st.fromY
+        st.rot = st.fromRot
+        st.alpha = 1
+        self.cardStates[key] = st
+    end
+    self.lastHandIds = shallowCopyList(hand)
+end
+
+local function fanParams()
+	local fan = (Config.DECK and Config.DECK.FAN) or {}
+	local radius = fan.RADIUS or 520
+	local maxSpreadDeg = fan.MAX_SPREAD_DEG or 80
+	local minSpreadDeg = fan.MIN_SPREAD_DEG or 16
+	local perCardSpreadDeg = fan.PER_CARD_SPREAD_DEG or 14
+	local rotationScale = fan.ROTATION_SCALE or 1
+	local baselineOffsetY = fan.BASELINE_OFFSET_Y or -8
+	local hoverLift = fan.HOVER_LIFT or 22
+	return radius, maxSpreadDeg, minSpreadDeg, perCardSpreadDeg, rotationScale, baselineOffsetY, hoverLift
+end
+
+function HandUI:getCardTransform(i, handCount, isHovered)
+	local w = Config.LOGICAL_WIDTH
+	local h = Config.LOGICAL_HEIGHT
+	local cw = Config.DECK.CARD_WIDTH
+	local ch = Config.DECK.CARD_HEIGHT
+	local margin = Config.DECK.HAND_MARGIN
+	local radius, maxSpreadDeg, minSpreadDeg, perCardSpreadDeg, rotationScale, baselineOffsetY, hoverLift = fanParams()
+	local centerX = w * 0.5
+	local baselineY = h - margin - ch * 0.5 + (baselineOffsetY or 0)
+	local spreadDeg = 0
+	if handCount and handCount > 1 then
+		spreadDeg = minSpreadDeg + (handCount - 2) * perCardSpreadDeg
+		if spreadDeg < minSpreadDeg then spreadDeg = minSpreadDeg end
+		if spreadDeg > maxSpreadDeg then spreadDeg = maxSpreadDeg end
+	end
+	local angleDeg = 0
+	if handCount and handCount > 1 then
+		local t = (i - 1) / (handCount - 1)
+		angleDeg = -spreadDeg * 0.5 + t * spreadDeg
+	end
+	local a = math.rad(angleDeg)
+	local circleCX = centerX
+	local circleCY = baselineY + radius
+	local cx = circleCX + radius * math.sin(a)
+	local cy = circleCY - radius * math.cos(a)
+	if isHovered then
+		cy = cy - (hoverLift or 0)
+	end
+	local rot = a * (rotationScale or 1)
+	return cx, cy, rot, cw, ch
+end
+
+local function getDrawOrder(handCount)
+	local order = {}
+	for i = 1, handCount do order[i] = i end
+	-- draw edges first, center last
+	table.sort(order, function(a, b)
+		local center = (handCount + 1) * 0.5
+		local da = math.abs(a - center)
+		local db = math.abs(b - center)
+		if da == db then
+			return a < b
+		end
+		return da > db
+	end)
+	return order
+end
+
 function HandUI:getCardRect(i, handCount)
-    local w, _, margin, cw, ch, spacing, y = layoutHand()
-    local totalWidth = handCount * cw + (handCount - 1) * spacing
-    local startX = (w - totalWidth) / 2
-    local x = startX + (i - 1) * (cw + spacing)
-    return x, y, cw, ch
+	local cx, cy, _, cw, ch = self:getCardTransform(i, handCount, (self.hoverIndex == i))
+	local x = cx - cw * 0.5
+	local y = cy - ch * 0.5
+	return x, y, cw, ch
+end
+
+-- Point-in-oriented-rect test in card-local space
+local function pointInOBB(px, py, cx, cy, rot, halfW, halfH)
+    local dx = px - cx
+    local dy = py - cy
+    local cosr = math.cos(rot)
+    local sinr = math.sin(rot)
+    -- rotate by -rot
+    local lx = dx * cosr + dy * sinr
+    local ly = -dx * sinr + dy * cosr
+    return math.abs(lx) <= halfW and math.abs(ly) <= halfH
+end
+
+function HandUI:getCardHitSize()
+    local cw = Config.DECK.CARD_WIDTH
+    local ch = Config.DECK.CARD_HEIGHT
+    local vw, vh = cw, ch
+    local scale = Config.DECK.CARD_TEMPLATE_SCALE or 0.7
+    if not self.cardTemplate then
+        local path = string.format('%s/%s', Config.ENTITIES_PATH, 'card_template_1.png')
+        if love.filesystem.getInfo(path) then
+            self.cardTemplate = love.graphics.newImage(path)
+            self.cardTemplate:setFilter('nearest', 'nearest')
+        end
+    end
+    if self.cardTemplate then
+        local iw = self.cardTemplate:getWidth()
+        local ih = self.cardTemplate:getHeight()
+        vw = math.max(cw, iw * scale)
+        vh = math.max(ch, ih * scale)
+    end
+    return vw, vh
 end
 
 function HandUI:mousepressed(x, y, button)
     if button ~= 1 then return end
     local hand = self.deck:getHand()
-    for i = #hand, 1, -1 do
-        local x0, y0, cw, ch = self:getCardRect(i, #hand)
-        if x >= x0 and x <= x0 + cw and y >= y0 and y <= y0 + ch then
-            self.drag.active = true
-            self.drag.cardIndex = i
-            self.drag.cardId = hand[i]
-            self.drag.startX = x
-            self.drag.startY = y
-            self.drag.anchorX = x0 + cw / 2
-            self.drag.anchorY = y0 + ch / 2
+	local n = #hand
+	local order = getDrawOrder(n)
+    for k = #order, 1, -1 do
+        local i = order[k]
+        local cx, cy, rot, cw, ch = self:getCardTransform(i, n, (self.hoverIndex == i))
+        local wHit, hHit = (self:getCardHitSize())
+        -- swap to match sprite orientation
+        local hw = ((hHit or ch)) * 0.5
+        local hh = ((wHit or cw)) * 0.5
+        -- oriented hit test in card-local space
+        if pointInOBB(x, y, cx, cy, rot, hw, hh) then
+			self.drag.active = true
+			self.drag.cardIndex = i
+			self.drag.cardId = hand[i]
+			self.drag.startX = x
+			self.drag.startY = y
+            self.drag.anchorX = cx
+            self.drag.anchorY = cy
             self.drag.mx = x
             self.drag.my = y
-            self.drag.locked = false
-            return true
-        end
-    end
+            -- initialize smooth follower at current card center
+            self.drag.smoothX = cx
+            self.drag.smoothY = cy
+			self.drag.locked = false
+			self.hoverIndex = i
+			return true
+		end
+	end
     return false
 end
 
 function HandUI:mousemoved(x, y, dx, dy)
-    if self.drag.active then
+	self.mouseX, self.mouseY = x, y
+	if self.drag.active then
         self.drag.mx = x
         self.drag.my = y
         -- determine target side based on relative x position
@@ -91,7 +281,23 @@ function HandUI:mousemoved(x, y, dx, dy)
         end
         return true
     end
-    return false
+	-- update hover when not dragging (top-most hit wins)
+    local hand = self.deck:getHand()
+    local n = #hand
+    local order = getDrawOrder(n)
+    self.hoverIndex = nil
+    for k = #order, 1, -1 do
+        local i = order[k]
+        local cx, cy, rot, cw, ch = self:getCardTransform(i, n, false)
+        local wHit, hHit = (self:getCardHitSize())
+        local hw = ((hHit or ch)) * 0.5
+        local hh = ((wHit or cw)) * 0.5
+        if pointInOBB(x, y, cx, cy, rot, hw, hh) then
+            self.hoverIndex = i
+            break
+        end
+    end
+	return self.hoverIndex ~= nil
 end
 
 function HandUI:mousereleased(x, y, button)
@@ -108,6 +314,38 @@ function HandUI:mousereleased(x, y, button)
     return info
 end
 
+function HandUI:onCardPlayed(index, cardId)
+    -- start slide-up and fade-out from the index's last known transform
+    if not index then return end
+    local key = self.indexToKey[index]
+    local st = key and self.cardStates[key] or nil
+    local startX, startY, rot
+    if st and st.x and st.y and st.rot then
+        startX, startY, rot = st.x, st.y, st.rot
+    else
+        -- fallback to immediate transform if state not captured yet
+        local n = #self.deck:getHand()
+        startX, startY, rot = self:getCardTransform(index, n, false)
+    end
+    local anim = {
+        id = cardId,
+        startX = startX or 0,
+        startY = startY or 0,
+        rot = rot or 0,
+        t = 0,
+        dur = 0.18,
+        slide = 180
+    }
+    if key then
+        self.playAnimations[key] = anim
+        -- remove persistent layout state for this key so it doesn't affect remaining tween
+        self.cardStates[key] = nil
+    else
+        -- if we don't have a key, store with a synthetic one
+        self.playAnimations['temp_' .. tostring(cardId) .. '_' .. tostring(love.timer.getTime())] = anim
+    end
+end
+
 function HandUI:draw()
     local hand = self.deck:getHand()
     local energy = self.deck:getEnergy()
@@ -117,84 +355,170 @@ function HandUI:draw()
     local text = string.format("Energy: %d   Draw: %d   Discard: %d", energy, drawCount, discardCount)
     Theme.drawText(text, pad, Config.LOGICAL_HEIGHT - 24 - pad, Theme.FONTS.MEDIUM, Theme.COLORS.WHITE)
 
-    -- Cards
-    for i, id in ipairs(hand) do
+    -- Cards (fan layout)
+	local n = #hand
+	local order = getDrawOrder(n)
+	local draggingIndex = (self.drag.active and self.drag.cardIndex) or nil
+	local hoveredIndex = (not self.drag.active) and self.hoverIndex or nil
+
+	local function drawCardAt(i, id, isHovered)
         local def = self.deck:getCardDef(id)
-        local x, y, cw, ch = self:getCardRect(i, #hand)
-        local isDragging = self.drag.active and self.drag.cardIndex == i
-        if isDragging then
-            local targetX = self.drag.mx - cw / 2
-            local targetY = self.drag.my - ch / 2
-            local clampY = Config.DECK.DRAG_CLAMP_Y or (Config.LOGICAL_HEIGHT - Config.DECK.CARD_HEIGHT - Config.DECK.HAND_MARGIN - 60)
-            if not self.drag.locked then
-                if targetY < clampY then
-                    -- lock card in place when crossing threshold the first time, tween to clamp
-                    self.drag.locked = true
-                    self.drag.lockTweenT = 0
-                    self.drag.lockStartX = x
-                    self.drag.lockStartY = y
-                    self.drag.lockTargetX = targetX
-                    self.drag.lockTargetY = clampY
-                    self.drag.anchorX = targetX + cw / 2
-                    self.drag.anchorY = clampY + ch / 2
-                else
-                    -- follow cursor below threshold
-                    x = targetX
-                    y = targetY
-                    self.drag.anchorX = x + cw / 2
-                    self.drag.anchorY = y + ch / 2
-                end
-            end
-            -- if locked, keep card anchored at locked anchor, tween into place
-            if self.drag.locked then
-                local t = math.min(1, self.drag.lockTweenT or 1)
-                local u = t * t * (3 - 2 * t)
-                local lx = self.drag.lockStartX + (self.drag.lockTargetX - self.drag.lockStartX) * u
-                local ly = self.drag.lockStartY + (self.drag.lockTargetY - self.drag.lockStartY) * u
-                x = lx
-                y = ly
-            end
-        end
-        -- card background (image template if available)
-        if not self.cardTemplate then
-            local path = string.format('%s/%s', Config.ENTITIES_PATH, 'card_template_1.png')
-            if love.filesystem.getInfo(path) then
-                self.cardTemplate = love.graphics.newImage(path)
-                self.cardTemplate:setFilter('nearest', 'nearest')
-            end
-        end
-        if self.cardTemplate then
-            love.graphics.setColor(1, 1, 1, 1)
-            local iw = self.cardTemplate:getWidth()
-            local ih = self.cardTemplate:getHeight()
-            local scale = Config.DECK.CARD_TEMPLATE_SCALE or 0.7
-            local drawX = x + (cw - iw * scale) / 2
-            local drawY = y + (ch - ih * scale) / 2
-            love.graphics.draw(self.cardTemplate, drawX, drawY, 0, scale, scale)
+        local key = self.indexToKey[i]
+        local st = key and self.cardStates[key] or nil
+        local cx, cy, rot
+        if st and st.x and st.y and st.rot then
+            cx, cy, rot = st.x, st.y, st.rot
         else
-            love.graphics.setColor(0.15, 0.15, 0.2, 0.95)
-            love.graphics.rectangle('fill', x, y, cw, ch, 6, 6)
-            love.graphics.setColor(1, 1, 1, 1)
-            love.graphics.rectangle('line', x, y, cw, ch, 6, 6)
+            cx, cy, rot = self:getCardTransform(i, n, isHovered)
         end
-        -- name and cost
-        if def then
-            Theme.drawText(def.name or id, x + 8, y + 8, Theme.FONTS.MEDIUM, Theme.COLORS.WHITE)
-            Theme.drawText(tostring(def.cost or 0), x + cw - 20, y + 8, Theme.FONTS.MEDIUM, Theme.COLORS.SECONDARY)
-        else
-            Theme.drawText(id, x + 8, y + 8, Theme.FONTS.MEDIUM, Theme.COLORS.WHITE)
+        -- Apply hover lift visually even when using stored state
+        if isHovered then
+            local fan = (Config.DECK and Config.DECK.FAN) or {}
+            local lift = fan.HOVER_LIFT or 22
+            cy = cy - lift
         end
-    end
+        local cw, ch = Config.DECK.CARD_WIDTH, Config.DECK.CARD_HEIGHT
+		-- lazy-load template
+		if not self.cardTemplate then
+			local path = string.format('%s/%s', Config.ENTITIES_PATH, 'card_template_1.png')
+			if love.filesystem.getInfo(path) then
+				self.cardTemplate = love.graphics.newImage(path)
+				self.cardTemplate:setFilter('nearest', 'nearest')
+			end
+		end
+		love.graphics.push()
+		love.graphics.translate(cx, cy)
+		love.graphics.rotate(rot)
+		local cw2, ch2 = cw * 0.5, ch * 0.5
+		-- card background / template
+		if self.cardTemplate then
+			love.graphics.setColor(1, 1, 1, 1)
+			local iw = self.cardTemplate:getWidth()
+			local ih = self.cardTemplate:getHeight()
+			local scale = Config.DECK.CARD_TEMPLATE_SCALE or 0.7
+			local drawX = -cw2 + (cw - iw * scale) / 2
+			local drawY = -ch2 + (ch - ih * scale) / 2
+			love.graphics.draw(self.cardTemplate, drawX, drawY, 0, scale, scale)
+		else
+			love.graphics.setColor(0.15, 0.15, 0.2, 0.95)
+			love.graphics.rectangle('fill', -cw2, -ch2, cw, ch, 6, 6)
+			love.graphics.setColor(1, 1, 1, 1)
+			love.graphics.rectangle('line', -cw2, -ch2, cw, ch, 6, 6)
+		end
+		-- name and cost
+		if def then
+			Theme.drawText(def.name or id, -cw2 + 8, -ch2 + 8, Theme.FONTS.MEDIUM, Theme.COLORS.WHITE)
+			Theme.drawText(tostring(def.cost or 0), cw2 - 20, -ch2 + 8, Theme.FONTS.MEDIUM, Theme.COLORS.SECONDARY)
+		else
+			Theme.drawText(id, -cw2 + 8, -ch2 + 8, Theme.FONTS.MEDIUM, Theme.COLORS.WHITE)
+		end
+		love.graphics.pop()
+	end
+
+	-- draw non-hovered, non-dragging first
+	for _, i in ipairs(order) do
+		if i ~= draggingIndex and i ~= hoveredIndex then
+			drawCardAt(i, hand[i], false)
+		end
+	end
+	-- draw hovered on top (if any and not dragging)
+	if hoveredIndex and hand[hoveredIndex] then
+		drawCardAt(hoveredIndex, hand[hoveredIndex], true)
+	end
+	-- draw dragging card on very top with axis-aligned orientation and drag behavior
+	if draggingIndex and hand[draggingIndex] then
+		local i = draggingIndex
+		local id = hand[i]
+		local def = self.deck:getCardDef(id)
+		local _, _, _, cw, ch = self:getCardTransform(i, n, false)
+		local x, y = self:getCardRect(i, n)
+		local targetX = self.drag.mx - cw / 2
+		local targetY = self.drag.my - ch / 2
+		-- smooth follower to ease into cursor position
+		self.drag.smoothX = self.drag.smoothX or (x + cw / 2)
+		self.drag.smoothY = self.drag.smoothY or (y + ch / 2)
+		local follow = self.drag.followSpeed or 16
+		local dt = love.timer.getDelta and love.timer.getDelta() or 0.016
+		self.drag.smoothX = self.drag.smoothX + (targetX + cw / 2 - self.drag.smoothX) * math.min(1, follow * dt)
+		self.drag.smoothY = self.drag.smoothY + (targetY + ch / 2 - self.drag.smoothY) * math.min(1, follow * dt)
+		local clampY = Config.DECK.DRAG_CLAMP_Y or (Config.LOGICAL_HEIGHT - Config.DECK.CARD_HEIGHT - Config.DECK.HAND_MARGIN - 60)
+		if not self.drag.locked then
+			if targetY < clampY then
+				self.drag.locked = true
+				self.drag.lockTweenT = 0
+				self.drag.lockStartX = x
+				self.drag.lockStartY = y
+				self.drag.lockTargetX = targetX
+				self.drag.lockTargetY = clampY
+				self.drag.anchorX = targetX + cw / 2
+				self.drag.anchorY = clampY + ch / 2
+			else
+				x = self.drag.smoothX - cw / 2
+				y = self.drag.smoothY - ch / 2
+				self.drag.anchorX = x + cw / 2
+				self.drag.anchorY = y + ch / 2
+			end
+		end
+		if self.drag.locked then
+			local t = math.min(1, self.drag.lockTweenT or 1)
+			local u = t * t * (3 - 2 * t)
+			local lx = self.drag.lockStartX + (self.drag.lockTargetX - self.drag.lockStartX) * u
+			local ly = self.drag.lockStartY + (self.drag.lockTargetY - self.drag.lockStartY) * u
+			x = lx
+			y = ly
+		end
+		-- draw axis-aligned dragged card at (x,y)
+		local cx, cy = x + cw * 0.5, y + ch * 0.5
+		-- lazy-load template
+		if not self.cardTemplate then
+			local path = string.format('%s/%s', Config.ENTITIES_PATH, 'card_template_1.png')
+			if love.filesystem.getInfo(path) then
+				self.cardTemplate = love.graphics.newImage(path)
+				self.cardTemplate:setFilter('nearest', 'nearest')
+			end
+		end
+		love.graphics.push()
+		love.graphics.translate(cx, cy)
+		love.graphics.rotate(0)
+		local cw2, ch2 = cw * 0.5, ch * 0.5
+		if self.cardTemplate then
+			love.graphics.setColor(1, 1, 1, 1)
+			local iw = self.cardTemplate:getWidth()
+			local ih = self.cardTemplate:getHeight()
+			local scale = Config.DECK.CARD_TEMPLATE_SCALE or 0.7
+			local drawX = -cw2 + (cw - iw * scale) / 2
+			local drawY = -ch2 + (ch - ih * scale) / 2
+			love.graphics.draw(self.cardTemplate, drawX, drawY, 0, scale, scale)
+		else
+			love.graphics.setColor(0.15, 0.15, 0.2, 0.95)
+			love.graphics.rectangle('fill', -cw2, -ch2, cw, ch, 6, 6)
+			love.graphics.setColor(1, 1, 1, 1)
+			love.graphics.rectangle('line', -cw2, -ch2, cw, ch, 6, 6)
+		end
+		if def then
+			Theme.drawText(def.name or id, -cw2 + 8, -ch2 + 8, Theme.FONTS.MEDIUM, Theme.COLORS.WHITE)
+			Theme.drawText(tostring(def.cost or 0), cw2 - 20, -ch2 + 8, Theme.FONTS.MEDIUM, Theme.COLORS.SECONDARY)
+		else
+			Theme.drawText(id, -cw2 + 8, -ch2 + 8, Theme.FONTS.MEDIUM, Theme.COLORS.WHITE)
+		end
+		love.graphics.pop()
+	end
+
+	-- Debug hit overlay removed per request
 
     -- Drag arrow when active
     if self.drag.active then
         local arrow = Config.DECK.ARROW or {}
-        local color = arrow.COLOR or {1,1,1,0.85}
-        local width = arrow.WIDTH or 3
-        local head = arrow.HEAD_SIZE or 10
-        local curveK = arrow.CURVE_STRENGTH or 0.2
-        local ax = self.drag.anchorX ~= 0 and self.drag.anchorX or self.drag.startX
-        local ay = self.drag.anchorY ~= 0 and self.drag.anchorY or self.drag.startY
+		local color = arrow.COLOR or {1,1,1,0.85}
+		local width = arrow.WIDTH or 3
+		local head = arrow.HEAD_SIZE or 10
+		local curveK = arrow.CURVE_STRENGTH or 0.2
+		local ax = self.drag.anchorX ~= 0 and self.drag.anchorX or self.drag.startX
+		local ay = self.drag.anchorY ~= 0 and self.drag.anchorY or self.drag.startY
+		-- raise the start point higher on the card (stronger by default)
+		local ch = Config.DECK.CARD_HEIGHT or 140
+		local startRaise = arrow.START_RAISE_PIXELS or math.floor(ch * 0.6)
+		ay = ay - startRaise
         local bx = self.drag.mx
         local by = self.drag.my
 
@@ -221,28 +545,105 @@ function HandUI:draw()
             local blend = from * (1 - u) + to * u
             sign = blend
         end
-        local cx = ax + dx * 0.5 + px * (dist * curveK * sign)
-        local cy = ay + dy * 0.5 + py * (dist * curveK * sign)
+        -- First control: earlier along the path with smaller offset (flatter start)
+        local cx = ax + dx * 0.4 + px * (dist * curveK * 0.6 * sign)
+        local cy = ay + dy * 0.4 + py * (dist * curveK * 0.6 * sign)
+        -- Second control: very close to end with a strong offset (more end-weighted arc)
+        local c2x = ax + dx * 0.92 + px * (dist * curveK * 2.2 * sign)
+        local c2y = ay + dy * 0.92 + py * (dist * curveK * 2.2 * sign)
 
-        love.graphics.setColor(color)
-        love.graphics.setLineWidth(width)
-        -- Render a smooth quadratic Bezier curve (A -> control -> B) without love.math dependency
-        local segments = 28
-        local points = {}
-        local prevX, prevY = ax, ay
-        for i = 0, segments do
-            local t = i / segments
+		-- Render a smooth quadratic Bezier curve (A -> control -> B) with tapered width and color/alpha gradient
+		-- Draw as filled quads per segment to avoid visible seams between segments
+        local segments = 48
+		local widthStart = (arrow.WIDTH_START or (width * 4))
+		local widthEnd = (arrow.WIDTH_END or (width * 0.8))
+		-- reverse gradient: start at #405F7C, end at #67AC97
+		local startColor = arrow.START_COLOR or {0.251, 0.3725, 0.4863} -- #405F7C
+		local endColor = arrow.END_COLOR or {0.4039, 0.6745, 0.5922} -- #67AC97
+		local startAlpha = 0.0
+		local endAlpha = (color[4] or 0.85)
+
+        local function cubicPoint(t)
             local omt = 1 - t
-            local xq = omt*omt*ax + 2*omt*t*cx + t*t*bx
-            local yq = omt*omt*ay + 2*omt*t*cy + t*t*by
-            points[#points+1] = xq
-            points[#points+1] = yq
-            prevX, prevY = xq, yq
+            local omt2 = omt * omt
+            local t2 = t * t
+            local x = omt2*omt*ax + 3*omt2*t*cx + 3*omt*t2*c2x + t2*t*bx
+            local y = omt2*omt*ay + 3*omt2*t*cy + 3*omt*t2*c2y + t2*t*by
+            -- derivative for tangent
+            local dxdt = 3*omt2*(cx - ax) + 6*omt*t*(c2x - cx) + 3*t2*(bx - c2x)
+            local dydt = 3*omt2*(cy - ay) + 6*omt*t*(c2y - cy) + 3*t2*(by - c2y)
+            local len = math.sqrt(dxdt*dxdt + dydt*dydt)
+            if len < 1e-5 then len = 1 end
+            local nxp = -dydt / len
+            local nyp = dxdt / len
+            return x, y, nxp, nyp
         end
-        love.graphics.line(points)
 
-        -- No arrow head (fork) at the end; restore default line width
-        love.graphics.setLineWidth(1)
+        local prevX, prevY, prevNX, prevNY = cubicPoint(0)
+		local prevW = widthStart
+		for i = 1, segments do
+			local tt = i / segments
+            local curX, curY, curNX, curNY = cubicPoint(tt)
+			local wseg = widthStart + (widthEnd - widthStart) * tt
+			local r = startColor[1] + (endColor[1] - startColor[1]) * tt
+			local g = startColor[2] + (endColor[2] - startColor[2]) * tt
+			local b = startColor[3] + (endColor[3] - startColor[3]) * tt
+			local a = startAlpha + (endAlpha - startAlpha) * tt
+			love.graphics.setColor(r, g, b, a)
+			-- quad corners for previous and current sample
+			local p1x = prevX - prevNX * (prevW * 0.5)
+			local p1y = prevY - prevNY * (prevW * 0.5)
+			local p2x = prevX + prevNX * (prevW * 0.5)
+			local p2y = prevY + prevNY * (prevW * 0.5)
+			local p3x = curX  + curNX  * (wseg * 0.5)
+			local p3y = curY  + curNY  * (wseg * 0.5)
+			local p4x = curX  - curNX  * (wseg * 0.5)
+			local p4y = curY  - curNY  * (wseg * 0.5)
+			love.graphics.polygon('fill', p1x, p1y, p2x, p2y, p3x, p3y, p4x, p4y)
+			prevX, prevY, prevNX, prevNY, prevW = curX, curY, curNX, curNY, wseg
+		end
+    end
+
+    -- draw play-out animations on very top
+    for k, anim in pairs(self.playAnimations) do
+        local defAnim = anim.id and self.deck:getCardDef(anim.id) or nil
+        local cw, ch = Config.DECK.CARD_WIDTH, Config.DECK.CARD_HEIGHT
+        local cx = anim.startX
+        local cy = anim.startY - (anim.slide or 180) * easeValue(math.min(1, anim.t or 0), 'smoothstep')
+        local rot = anim.rot or 0
+        local alpha = 1 - easeValue(math.min(1, anim.t or 0), 'smoothstep')
+        if not self.cardTemplate then
+            local path = string.format('%s/%s', Config.ENTITIES_PATH, 'card_template_1.png')
+            if love.filesystem.getInfo(path) then
+                self.cardTemplate = love.graphics.newImage(path)
+                self.cardTemplate:setFilter('nearest', 'nearest')
+            end
+        end
+        love.graphics.push()
+        love.graphics.translate(cx, cy)
+        love.graphics.rotate(rot)
+        local cw2, ch2 = cw * 0.5, ch * 0.5
+        if self.cardTemplate then
+            love.graphics.setColor(1, 1, 1, alpha)
+            local iw = self.cardTemplate:getWidth()
+            local ih = self.cardTemplate:getHeight()
+            local scale = Config.DECK.CARD_TEMPLATE_SCALE or 0.7
+            local drawX = -cw2 + (cw - iw * scale) / 2
+            local drawY = -ch2 + (ch - ih * scale) / 2
+            love.graphics.draw(self.cardTemplate, drawX, drawY, 0, scale, scale)
+        else
+            love.graphics.setColor(0.15, 0.15, 0.2, 0.95 * alpha)
+            love.graphics.rectangle('fill', -cw2, -ch2, cw, ch, 6, 6)
+            love.graphics.setColor(1, 1, 1, alpha)
+            love.graphics.rectangle('line', -cw2, -ch2, cw, ch, 6, 6)
+        end
+        if defAnim then
+            Theme.drawText(defAnim.name or anim.id or '', -cw2 + 8, -ch2 + 8, Theme.FONTS.MEDIUM, {1,1,1,alpha})
+            Theme.drawText(tostring(defAnim.cost or 0), cw2 - 20, -ch2 + 8, Theme.FONTS.MEDIUM, {Theme.COLORS.SECONDARY[1], Theme.COLORS.SECONDARY[2], Theme.COLORS.SECONDARY[3], alpha})
+        elseif anim.id then
+            Theme.drawText(anim.id, -cw2 + 8, -ch2 + 8, Theme.FONTS.MEDIUM, {1,1,1,alpha})
+        end
+        love.graphics.pop()
     end
     -- Reset color to avoid tinting subsequent draws
     love.graphics.setColor(1, 1, 1, 1)
@@ -266,6 +667,63 @@ function HandUI:update(dt)
         else
             self.drag.lockTweenT = math.min(1, self.drag.lockTweenT + dt / dur)
         end
+    end
+    
+    -- detect hand composition changes to trigger layout tween
+    local hand = self.deck:getHand()
+    local changed = false
+    if #hand ~= #self.lastHandIds then
+        changed = true
+    else
+        for i = 1, #hand do
+            if hand[i] ~= self.lastHandIds[i] then changed = true; break end
+        end
+    end
+    if changed then
+        self:startLayoutTween()
+    end
+
+    -- advance layout tween per card
+    for i = 1, #hand do
+        local key = self.indexToKey[i]
+        if key then
+            local st = self.cardStates[key]
+            -- ensure a target exists (e.g., first frame)
+            local cx, cy, rot = self:getCardTransform(i, #hand, (not self.drag.active) and (self.hoverIndex == i))
+            if not st then
+                st = { x = cx, y = cy, rot = rot, fromX = cx, fromY = cy, fromRot = rot, toX = cx, toY = cy, toRot = rot, t = 1, dur = self.layoutTweenDur or 0.2, alpha = 1 }
+                self.cardStates[key] = st
+            end
+            -- if targets drift (hover/angle changed), retarget smoothly
+            if st.toX ~= cx or st.toY ~= cy or st.toRot ~= rot then
+                st.fromX, st.fromY, st.fromRot = st.x, st.y, st.rot
+                st.toX, st.toY, st.toRot = cx, cy, rot
+                st.t = 0
+                st.dur = self.layoutTweenDur or 0.2
+            end
+            if st.t < 1 then
+                st.t = math.min(1, st.t + dt / (st.dur > 0 and st.dur or 1e-6))
+                local u = easeValue(st.t, self.layoutEase)
+                st.x = st.fromX + (st.toX - st.fromX) * u
+                st.y = st.fromY + (st.toY - st.fromY) * u
+                -- shortest angle lerp (small angles expected)
+                st.rot = st.fromRot + (st.toRot - st.fromRot) * u
+            else
+                st.x, st.y, st.rot = st.toX, st.toY, st.toRot
+            end
+        end
+    end
+
+    -- advance play-out animations and cull finished
+    local toRemove = {}
+    for key, anim in pairs(self.playAnimations) do
+        anim.t = math.min(1, (anim.t or 0) + dt / (anim.dur or 0.18))
+        if anim.t >= 1 then
+            toRemove[#toRemove+1] = key
+        end
+    end
+    for i = 1, #toRemove do
+        self.playAnimations[toRemove[i]] = nil
     end
 end
 

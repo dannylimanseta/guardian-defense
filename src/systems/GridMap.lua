@@ -197,6 +197,15 @@ function GridMap:mousemoved(x, y, dx, dy)
     self.hoveredTile = tile
 end
 
+-- External hover control used during card dragging: show hover only when eligible
+function GridMap:setHoverFromPlacement(tile, eligible)
+    if eligible then
+        self.hoveredTile = tile
+    else
+        self.hoveredTile = nil
+    end
+end
+
 function GridMap:getTileAtPosition(x, y)
     -- Check if position is within grid bounds
     if x < self.gridX or x > self.gridX + self.gridWidth or
