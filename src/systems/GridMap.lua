@@ -79,7 +79,7 @@ function GridMap:draw()
             for _, tile in ipairs(layer.tiles) do
                 local sprite = tile.sprite
                 if sprite then
-                    local isSpecial = tile.type == "entrance" or tile.type == "core"
+                    local isSpecial = tile.type == "entrance" or tile.type == "core" or tile.type == "pillar"
                     local isEnemySpawn = tile.type == "enemy_spawn"
                     
                     if (pass == 1 and not isSpecial and not isEnemySpawn) or 
@@ -104,7 +104,12 @@ function GridMap:draw()
                             tileY = tileY + offsetY + self.tileSize
                         end
                         
-                        love.graphics.draw(sprite, tileX, tileY, 0, scaleX, scaleY)
+                        -- Support flipped tiles from TMX
+                        local sx = scaleX * ((tile.flipX and -1) or 1)
+                        local sy = scaleY * ((tile.flipY and -1) or 1)
+                        local ox = (tile.flipX and sprite:getWidth()) or 0
+                        local oy = (tile.flipY and sprite:getHeight()) or 0
+                        love.graphics.draw(sprite, tileX + (tile.flipX and sprite:getWidth() * scaleX or 0), tileY + (tile.flipY and sprite:getHeight() * scaleY or 0), 0, sx, sy)
                     end
                 end
             end

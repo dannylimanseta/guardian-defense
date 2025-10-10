@@ -33,6 +33,11 @@ local TILE_DEFINITIONS = {
         type = 'build',
         image = 'build_tile_1.png',
         opacity = 1
+    },
+    [6] = {
+        type = 'pillar',
+        image = 'pillars_1.png',
+        opacity = 1
     }
 }
 
@@ -87,7 +92,7 @@ local function parseCSVLayer(data, width, height)
     return tiles
 end
 
-local function buildTileData(tileId, x, y, tileWidth, tileHeight)
+local function buildTileData(tileId, x, y, tileWidth, tileHeight, flipX, flipY, flipD)
     if tileId == 0 then
         return {
             id = 0,
@@ -97,7 +102,10 @@ local function buildTileData(tileId, x, y, tileWidth, tileHeight)
             x = x,
             y = y,
             width = tileWidth,
-            height = tileHeight
+            height = tileHeight,
+            flipX = false,
+            flipY = false,
+            flipD = false
         }
     end
 
@@ -111,7 +119,10 @@ local function buildTileData(tileId, x, y, tileWidth, tileHeight)
             x = x,
             y = y,
             width = tileWidth,
-            height = tileHeight
+            height = tileHeight,
+            flipX = flipX or false,
+            flipY = flipY or false,
+            flipD = flipD or false
         }
     end
 
@@ -126,13 +137,21 @@ local function buildTileData(tileId, x, y, tileWidth, tileHeight)
         x = x,
         y = y,
         width = tileWidth,
-        height = tileHeight
+        height = tileHeight,
+        flipX = flipX or false,
+        flipY = flipY or false,
+        flipD = flipD or false
     }
 end
 
 local function parseLayers(content, width, height, tileWidth, tileHeight)
     local orderedLayers = {}
     local layerLookup = {}
+
+    -- Tiled flip flags
+    local FLIP_H = 0x80000000
+    local FLIP_V = 0x40000000
+    local FLIP_D = 0x20000000
 
     for name, data in content:gmatch('<layer[^>]-name="([^"]+)"[^>]*>.-<data[^>]*>(.-)</data>') do
         local tileIds = parseCSVLayer(data, width, height)
@@ -142,7 +161,21 @@ local function parseLayers(content, width, height, tileWidth, tileHeight)
         for x = 1, width do
             tilesMatrix[x] = {}
             for y = 1, height do
-                local tileData = buildTileData(tileIds[x][y], x, y, tileWidth, tileHeight)
+                local gid = tileIds[x][y]
+                local flipX = (bit32 and bit32.band(gid, FLIP_H) ~= 0) or (gid >= FLIP_H)
+                local flipY = (bit32 and bit32.band(gid, FLIP_V) ~= 0) or (gid % (2^31) >= FLIP_V)
+                local flipD = (bit32 and bit32.band(gid, FLIP_D) ~= 0) or false
+                -- mask off high bits if present
+                local id = gid
+                if gid >= 2^29 then
+                    id = gid & 0x1FFFFFFF
+                end
+                -- Lua 5.1 doesn't have &; fallback using math if needed
+                if not id or id == gid then
+                    local mask = 0x1FFFFFFF
+                    id = gid % (mask + 1)
+                end
+                local tileData = buildTileData(id, x, y, tileWidth, tileHeight, flipX, flipY, flipD)
                 tilesMatrix[x][y] = tileData
 
                 if tileData.sprite then
@@ -153,7 +186,10 @@ local function parseLayers(content, width, height, tileWidth, tileHeight)
                         opacity = tileData.opacity,
                         type = tileData.type,
                         width = tileData.width,
-                        height = tileData.height
+                        height = tileData.height,
+                        flipX = tileData.flipX,
+                        flipY = tileData.flipY,
+                        flipD = tileData.flipD
                     }
                 end
             end
