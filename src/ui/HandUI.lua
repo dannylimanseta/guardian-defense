@@ -208,25 +208,7 @@ function HandUI:draw()
         end
         love.graphics.line(points)
 
-        -- Arrow head at end, oriented by the curve tangent near t=1 using last segment
-        local ex = points[#points-1]
-        local ey = points[#points]
-        local lx = points[#points-3] or ax
-        local ly = points[#points-2] or ay
-        local tdx, tdy = ex - lx, ey - ly
-        local angle = math.atan2(tdy, tdx)
-        local leftAngle = angle - math.pi * 0.8
-        local rightAngle = angle + math.pi * 0.8
-        love.graphics.line(
-            ex, ey,
-            ex - math.cos(leftAngle) * head,
-            ey - math.sin(leftAngle) * head
-        )
-        love.graphics.line(
-            ex, ey,
-            ex - math.cos(rightAngle) * head,
-            ey - math.sin(rightAngle) * head
-        )
+        -- No arrow head (fork) at the end; restore default line width
         love.graphics.setLineWidth(1)
     end
     -- Reset color to avoid tinting subsequent draws
