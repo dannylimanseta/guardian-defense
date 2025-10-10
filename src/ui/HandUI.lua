@@ -165,23 +165,27 @@ function HandUI:draw()
 
         love.graphics.setColor(color)
         love.graphics.setLineWidth(width)
-        love.graphics.line(ax, ay, cx, cy, bx, by)
+        -- Render a smooth quadratic Bezier curve (A -> control -> B)
+        local curve = love.math.newBezierCurve(ax, ay, cx, cy, bx, by)
+        local points = curve:render(36)
+        love.graphics.line(points)
 
-        -- Arrow head at end (B) pointing toward direction
-        local angle = math.atan2(dy, dx)
-        local hx = math.cos(angle)
-        local hy = math.sin(angle)
+        -- Arrow head at end, oriented by the curve tangent near t=1
+        local ex, ey = curve:evaluate(1)
+        local px2, py2 = curve:evaluate(0.98)
+        local tdx, tdy = ex - px2, ey - py2
+        local angle = math.atan2(tdy, tdx)
         local leftAngle = angle - math.pi * 0.8
         local rightAngle = angle + math.pi * 0.8
         love.graphics.line(
-            bx, by,
-            bx - math.cos(leftAngle) * head,
-            by - math.sin(leftAngle) * head
+            ex, ey,
+            ex - math.cos(leftAngle) * head,
+            ey - math.sin(leftAngle) * head
         )
         love.graphics.line(
-            bx, by,
-            bx - math.cos(rightAngle) * head,
-            by - math.sin(rightAngle) * head
+            ex, ey,
+            ex - math.cos(rightAngle) * head,
+            ey - math.sin(rightAngle) * head
         )
         love.graphics.setLineWidth(1)
     end
