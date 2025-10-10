@@ -1,0 +1,26 @@
+# OS
+.DS_Store
+Thumbs.db
+
+# Love2D build artifacts
+*.love
+*.zip
+*.tar.gz
+build/
+dist/
+
+# IDE/editor
+.idea/
+.vscode/
+*.tmpl
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+logs/
+
+# Dependencies (if any vendored later)
+node_modules/
+
+

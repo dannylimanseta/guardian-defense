@@ -1,0 +1,18 @@
+* text=auto eol=lf
+
+# Treat common binary assets as binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ogg binary
+*.wav binary
+*.mp3 binary
+*.ttf binary
+*.otf binary
+
+# De-emphasize vendored libs in language stats
+src/libs/** linguist-vendored
+
+
