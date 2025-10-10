@@ -126,7 +126,8 @@ Config.DECK = {
     HAND_MARGIN = 12,
     CARD_WIDTH = 100,
     CARD_HEIGHT = 140,
-    CARD_SPACING = 12
+    CARD_SPACING = 12,
+    DRAG_CLAMP_Y = 420 -- when dragging a card upward, clamp its Y to this
 }
 
 return Config

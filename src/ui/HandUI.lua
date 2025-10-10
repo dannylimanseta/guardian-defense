@@ -15,6 +15,8 @@ function HandUI:new(deckManager)
         cardId = nil,
         startX = 0,
         startY = 0,
+        anchorX = 0,
+        anchorY = 0,
         mx = 0,
         my = 0
     }
@@ -51,6 +53,8 @@ function HandUI:mousepressed(x, y, button)
             self.drag.cardId = hand[i]
             self.drag.startX = x
             self.drag.startY = y
+            self.drag.anchorX = x0 + cw / 2
+            self.drag.anchorY = y0 + ch / 2
             self.drag.mx = x
             self.drag.my = y
             return true
@@ -97,8 +101,22 @@ function HandUI:draw()
         local x, y, cw, ch = self:getCardRect(i, #hand)
         local isDragging = self.drag.active and self.drag.cardIndex == i
         if isDragging then
-            x = self.drag.mx - cw / 2
-            y = self.drag.my - ch / 2
+            -- clamp Y when dragging above threshold; card stays anchored at clamp Y
+            local targetX = self.drag.mx - cw / 2
+            local targetY = self.drag.my - ch / 2
+            local clampY = Config.DECK.DRAG_CLAMP_Y or (Config.LOGICAL_HEIGHT - Config.DECK.CARD_HEIGHT - Config.DECK.HAND_MARGIN - 60)
+            if targetY < clampY then
+                y = clampY
+                x = targetX
+                -- update anchor at card center along clamped Y
+                self.drag.anchorX = x + cw / 2
+                self.drag.anchorY = y + ch / 2
+            else
+                x = targetX
+                y = targetY
+                self.drag.anchorX = x + cw / 2
+                self.drag.anchorY = y + ch / 2
+            end
         end
         -- card background
         love.graphics.setColor(0.15, 0.15, 0.2, 0.95)
@@ -118,7 +136,9 @@ function HandUI:draw()
     if self.drag.active then
         love.graphics.setColor(1, 1, 1, 0.6)
         love.graphics.setLineWidth(2)
-        love.graphics.line(self.drag.startX, self.drag.startY, self.drag.mx, self.drag.my)
+        local ax = self.drag.anchorX ~= 0 and self.drag.anchorX or self.drag.startX
+        local ay = self.drag.anchorY ~= 0 and self.drag.anchorY or self.drag.startY
+        love.graphics.line(ax, ay, self.drag.mx, self.drag.my)
         love.graphics.setLineWidth(1)
     end
     -- Reset color to avoid tinting subsequent draws
