@@ -27,6 +27,7 @@ function HandUI:new(deckManager)
         tweenT = 1,
         tweenDur = (Config.DECK.ARROW and Config.DECK.ARROW.FLIP_TWEEN_DURATION) or 0.1
     }
+    self.cardTemplate = nil
     return self
 end
 
@@ -139,11 +140,27 @@ function HandUI:draw()
                 y = self.drag.anchorY - ch / 2
             end
         end
-        -- card background
-        love.graphics.setColor(0.15, 0.15, 0.2, 0.95)
-        love.graphics.rectangle('fill', x, y, cw, ch, 6, 6)
-        love.graphics.setColor(1, 1, 1, 1)
-        love.graphics.rectangle('line', x, y, cw, ch, 6, 6)
+        -- card background (image template if available)
+        if not self.cardTemplate then
+            local path = string.format('%s/%s', Config.ENTITIES_PATH, 'card_template_1.png')
+            if love.filesystem.getInfo(path) then
+                self.cardTemplate = love.graphics.newImage(path)
+                self.cardTemplate:setFilter('nearest', 'nearest')
+            end
+        end
+        if self.cardTemplate then
+            love.graphics.setColor(1, 1, 1, 1)
+            local iw = self.cardTemplate:getWidth()
+            local ih = self.cardTemplate:getHeight()
+            local sx = cw / iw
+            local sy = ch / ih
+            love.graphics.draw(self.cardTemplate, x, y, 0, sx, sy)
+        else
+            love.graphics.setColor(0.15, 0.15, 0.2, 0.95)
+            love.graphics.rectangle('fill', x, y, cw, ch, 6, 6)
+            love.graphics.setColor(1, 1, 1, 1)
+            love.graphics.rectangle('line', x, y, cw, ch, 6, 6)
+        end
         -- name and cost
         if def then
             Theme.drawText(def.name or id, x + 8, y + 8, Theme.FONTS.MEDIUM, Theme.COLORS.WHITE)
