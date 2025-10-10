@@ -128,7 +128,7 @@ Config.DECK = {
     CARD_HEIGHT = 140,
     CARD_SPACING = 12,
     CARD_TEMPLATE_SCALE = 0.7,
-    DRAG_CLAMP_Y = 420, -- when dragging a card upward, clamp its Y to this
+    DRAG_CLAMP_Y = 540, -- when dragging a card upward, clamp its Y to this (higher value = sooner)
     ARROW = {
         COLOR = {1, 1, 1, 0.85},
         WIDTH = 3,
