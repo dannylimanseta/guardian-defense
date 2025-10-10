@@ -19,7 +19,13 @@ function HandUI:new(deckManager)
         anchorY = 0,
         mx = 0,
         my = 0,
-        locked = false
+        locked = false,
+        lockTweenT = 1,
+        lockStartX = 0,
+        lockStartY = 0,
+        lockTargetX = 0,
+        lockTargetY = 0,
+        lockTweenDur = (Config.DECK and Config.DECK.CARD_LOCK_TWEEN_DURATION) or 0.12
     }
     self.arrowState = {
         side = 1, -- 1 or -1 for curve side
@@ -122,8 +128,13 @@ function HandUI:draw()
             local clampY = Config.DECK.DRAG_CLAMP_Y or (Config.LOGICAL_HEIGHT - Config.DECK.CARD_HEIGHT - Config.DECK.HAND_MARGIN - 60)
             if not self.drag.locked then
                 if targetY < clampY then
-                    -- lock card in place when crossing threshold the first time
+                    -- lock card in place when crossing threshold the first time, tween to clamp
                     self.drag.locked = true
+                    self.drag.lockTweenT = 0
+                    self.drag.lockStartX = x
+                    self.drag.lockStartY = y
+                    self.drag.lockTargetX = targetX
+                    self.drag.lockTargetY = clampY
                     self.drag.anchorX = targetX + cw / 2
                     self.drag.anchorY = clampY + ch / 2
                 else
@@ -134,10 +145,14 @@ function HandUI:draw()
                     self.drag.anchorY = y + ch / 2
                 end
             end
-            -- if locked, keep card anchored at locked anchor
+            -- if locked, keep card anchored at locked anchor, tween into place
             if self.drag.locked then
-                x = self.drag.anchorX - cw / 2
-                y = self.drag.anchorY - ch / 2
+                local t = math.min(1, self.drag.lockTweenT or 1)
+                local u = t * t * (3 - 2 * t)
+                local lx = self.drag.lockStartX + (self.drag.lockTargetX - self.drag.lockStartX) * u
+                local ly = self.drag.lockStartY + (self.drag.lockTargetY - self.drag.lockStartY) * u
+                x = lx
+                y = ly
             end
         end
         -- card background (image template if available)
@@ -241,6 +256,15 @@ function HandUI:update(dt)
             self.arrowState.tweenT = 1
         else
             self.arrowState.tweenT = math.min(1, self.arrowState.tweenT + dt / dur)
+        end
+    end
+    -- advance lock tween if active
+    if self.drag and self.drag.locked and self.drag.lockTweenT and self.drag.lockTweenT < 1 then
+        local dur = self.drag.lockTweenDur or 0.12
+        if dur <= 0 then
+            self.drag.lockTweenT = 1
+        else
+            self.drag.lockTweenT = math.min(1, self.drag.lockTweenT + dt / dur)
         end
     end
 end
