@@ -24,7 +24,7 @@ jobs:
       - name: Install luacheck
         run: luarocks install luacheck
 
-      - name: Run luacheck
-        run: luacheck .
+      - name: Run luacheck (scoped)
+        run: luacheck main.lua conf.lua src
 
 

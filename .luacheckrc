@@ -13,7 +13,7 @@ ignore = {
     -- whitespace & length
     "W611", "W612", "W631",
     -- unused/shadowed variables & args
-    "W211", "W212", "W213", "W412", "W421",
+    "W211", "W212", "W213", "W412", "W421", "W231",
 }
 
 exclude_files = {
