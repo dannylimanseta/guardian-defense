@@ -146,7 +146,7 @@ function HandUI:draw()
         local color = arrow.COLOR or {1,1,1,0.85}
         local width = arrow.WIDTH or 3
         local head = arrow.HEAD_SIZE or 10
-        local curveK = arrow.CURVE_STRENGTH or 0.2
+        local curveK = (arrow.CURVE_STRENGTH or 0.2) * (arrow.CURVE_SIGN or 1)
         local ax = self.drag.anchorX ~= 0 and self.drag.anchorX or self.drag.startX
         local ay = self.drag.anchorY ~= 0 and self.drag.anchorY or self.drag.startY
         local bx = self.drag.mx
