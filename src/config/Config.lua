@@ -117,4 +117,16 @@ Config.TOWER = {
     }
 }
 
+-- Deck / Card System Settings
+Config.DECK = {
+    HAND_SIZE = 5,
+    ENERGY_PER_WAVE = 5,
+    DISCARD_ON_WAVE_END = true,
+    -- UI layout (logical coordinates)
+    HAND_MARGIN = 12,
+    CARD_WIDTH = 100,
+    CARD_HEIGHT = 140,
+    CARD_SPACING = 12
+}
+
 return Config

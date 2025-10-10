@@ -5,6 +5,8 @@ local ResolutionManager = require 'src/core/ResolutionManager'
 local GridMap = require 'src/systems/GridMap'
 local Config = require 'src/config/Config'
 local Theme = require 'src/theme'
+local DeckManager = require 'src/systems/DeckManager'
+local HandUI = require 'src/ui/HandUI'
 -- local moonshine = require 'src/libs/moonshine'
 
 local Game = {}
@@ -33,6 +35,12 @@ function Game:init()
     print("Guardian Defense initialized successfully!")
 end
 
+    -- Initialize deck/hand systems
+    self.deck = DeckManager:new()
+    self.deck:loadOrCreateDeck()
+    self.deck:startWave()
+    self.handUI = HandUI:new(self.deck)
+
 function Game:update(dt)
     ResolutionManager:update()
     self.gridMap:update(dt)
@@ -52,6 +60,10 @@ function Game:draw()
     -- Render scene to logical canvas first
     ResolutionManager:startDraw()
     self.gridMap:draw()
+    -- Hand UI and minimal HUD on top of scene within logical canvas
+    if self.handUI then
+        self.handUI:draw()
+    end
     -- HUD overlay (optional)
     if Config.UI.SHOW_CORE_HEALTH then
         self:drawHUD()
@@ -93,12 +105,53 @@ end
 function Game:mousepressed(x, y, button)
     -- Convert screen coordinates to game coordinates
     local gameX, gameY = ResolutionManager:screenToGame(x, y)
+    if self.handUI and self.handUI:mousepressed(gameX, gameY, button) then
+        return
+    end
     self.gridMap:mousepressed(gameX, gameY, button)
 end
 
 function Game:mousemoved(x, y, dx, dy)
     local gameX, gameY = ResolutionManager:screenToGame(x, y)
+    if self.handUI then
+        self.handUI:mousemoved(gameX, gameY, dx, dy)
+    end
     self.gridMap:mousemoved(gameX, gameY, dx, dy)
+end
+
+function Game:mousereleased(x, y, button)
+    local gameX, gameY = ResolutionManager:screenToGame(x, y)
+    if not self.handUI then return end
+    local info = self.handUI:mousereleased(gameX, gameY, button)
+    if not info or not info.cardId or not info.cardIndex then return end
+    -- Check energy before attempting to play
+    local can, reason = self.deck:canPlayCard(info.cardId)
+    if not can then
+        if Config.GAME.DEBUG_MODE then
+            print('Cannot play card:', reason)
+        end
+        return
+    end
+    -- Determine target tile
+    local tile = self.gridMap:getTileAtPosition(gameX, gameY)
+    if not tile then
+        if Config.GAME.DEBUG_MODE then print('Drop not on grid') end
+        return
+    end
+    local def = self.deck:playCardFromHand(info.cardIndex)
+    if not def then
+        if Config.GAME.DEBUG_MODE then print('Play failed') end
+        return
+    end
+    local placed = false
+    if def.type == 'place_tower' and def.payload and def.payload.tower == 'crossbow' then
+        placed = self.gridMap:placeTowerAt(tile.x, tile.y)
+    end
+    if not placed then
+        -- refund energy and card if placement invalid
+        self.deck:refundLastPlayed(def.id)
+        if Config.GAME.DEBUG_MODE then print('Placement invalid, refunded') end
+    end
 end
 
 function love.resize(width, height)

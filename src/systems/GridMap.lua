@@ -184,11 +184,8 @@ function GridMap:mousepressed(x, y, button)
         local tile = self:getTileAtPosition(x, y)
         if tile then
             self.selectedTile = tile
-            -- Attempt tower placement if on a build spot and not occupied
-            if self:isBuildSpot(tile.x, tile.y) and not self:isOccupied(tile.x, tile.y) then
-                self.towerManager:placeTower(tile.x, tile.y)
-                print(string.format("Tower placed at: (%d, %d)", tile.x, tile.y))
-            else
+            -- Selection only; placement is gated by card play via Game:mousereleased
+            if Config.GAME.DEBUG_MODE then
                 print(string.format("Selected tile: (%d, %d)", tile.x, tile.y))
             end
         end
@@ -256,6 +253,16 @@ function GridMap:isOccupied(x, y)
 end
 
 -- placement handled by TowerManager
+
+function GridMap:placeTowerAt(x, y)
+    if not self:isBuildSpot(x, y) then return false end
+    if self:isOccupied(x, y) then return false end
+    self.towerManager:placeTower(x, y)
+    if Config.GAME.DEBUG_MODE then
+        print(string.format("Tower placed at: (%d, %d)", x, y))
+    end
+    return true
+end
 
 function GridMap:update(dt)
     -- Update enemy system
