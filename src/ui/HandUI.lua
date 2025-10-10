@@ -58,6 +58,7 @@ function HandUI:mousepressed(x, y, button)
             self.drag.anchorY = y0 + ch / 2
             self.drag.mx = x
             self.drag.my = y
+            self.drag.locked = false
             return true
         end
     end
@@ -165,15 +166,27 @@ function HandUI:draw()
 
         love.graphics.setColor(color)
         love.graphics.setLineWidth(width)
-        -- Render a smooth quadratic Bezier curve (A -> control -> B)
-        local curve = love.math.newBezierCurve(ax, ay, cx, cy, bx, by)
-        local points = curve:render(36)
+        -- Render a smooth quadratic Bezier curve (A -> control -> B) without love.math dependency
+        local segments = 28
+        local points = {}
+        local prevX, prevY = ax, ay
+        for i = 0, segments do
+            local t = i / segments
+            local omt = 1 - t
+            local xq = omt*omt*ax + 2*omt*t*cx + t*t*bx
+            local yq = omt*omt*ay + 2*omt*t*cy + t*t*by
+            points[#points+1] = xq
+            points[#points+1] = yq
+            prevX, prevY = xq, yq
+        end
         love.graphics.line(points)
 
-        -- Arrow head at end, oriented by the curve tangent near t=1
-        local ex, ey = curve:evaluate(1)
-        local px2, py2 = curve:evaluate(0.98)
-        local tdx, tdy = ex - px2, ey - py2
+        -- Arrow head at end, oriented by the curve tangent near t=1 using last segment
+        local ex = points[#points-1]
+        local ey = points[#points]
+        local lx = points[#points-3] or ax
+        local ly = points[#points-2] or ay
+        local tdx, tdy = ex - lx, ey - ly
         local angle = math.atan2(tdy, tdx)
         local leftAngle = angle - math.pi * 0.8
         local rightAngle = angle + math.pi * 0.8
