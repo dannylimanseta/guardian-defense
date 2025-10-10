@@ -18,7 +18,8 @@ function HandUI:new(deckManager)
         anchorX = 0,
         anchorY = 0,
         mx = 0,
-        my = 0
+        my = 0,
+        locked = false
     }
     return self
 end
@@ -101,21 +102,27 @@ function HandUI:draw()
         local x, y, cw, ch = self:getCardRect(i, #hand)
         local isDragging = self.drag.active and self.drag.cardIndex == i
         if isDragging then
-            -- clamp Y when dragging above threshold; card stays anchored at clamp Y
             local targetX = self.drag.mx - cw / 2
             local targetY = self.drag.my - ch / 2
             local clampY = Config.DECK.DRAG_CLAMP_Y or (Config.LOGICAL_HEIGHT - Config.DECK.CARD_HEIGHT - Config.DECK.HAND_MARGIN - 60)
-            if targetY < clampY then
-                y = clampY
-                x = targetX
-                -- update anchor at card center along clamped Y
-                self.drag.anchorX = x + cw / 2
-                self.drag.anchorY = y + ch / 2
-            else
-                x = targetX
-                y = targetY
-                self.drag.anchorX = x + cw / 2
-                self.drag.anchorY = y + ch / 2
+            if not self.drag.locked then
+                if targetY < clampY then
+                    -- lock card in place when crossing threshold the first time
+                    self.drag.locked = true
+                    self.drag.anchorX = targetX + cw / 2
+                    self.drag.anchorY = clampY + ch / 2
+                else
+                    -- follow cursor below threshold
+                    x = targetX
+                    y = targetY
+                    self.drag.anchorX = x + cw / 2
+                    self.drag.anchorY = y + ch / 2
+                end
+            end
+            -- if locked, keep card anchored at locked anchor
+            if self.drag.locked then
+                x = self.drag.anchorX - cw / 2
+                y = self.drag.anchorY - ch / 2
             end
         end
         -- card background
@@ -134,11 +141,48 @@ function HandUI:draw()
 
     -- Drag arrow when active
     if self.drag.active then
-        love.graphics.setColor(1, 1, 1, 0.6)
-        love.graphics.setLineWidth(2)
+        local arrow = Config.DECK.ARROW or {}
+        local color = arrow.COLOR or {1,1,1,0.85}
+        local width = arrow.WIDTH or 3
+        local head = arrow.HEAD_SIZE or 10
+        local curveK = arrow.CURVE_STRENGTH or 0.2
         local ax = self.drag.anchorX ~= 0 and self.drag.anchorX or self.drag.startX
         local ay = self.drag.anchorY ~= 0 and self.drag.anchorY or self.drag.startY
-        love.graphics.line(ax, ay, self.drag.mx, self.drag.my)
+        local bx = self.drag.mx
+        local by = self.drag.my
+
+        -- Quadratic Bezier from A to B with control offset to create an upward bow
+        local dx = bx - ax
+        local dy = by - ay
+        local dist = math.sqrt(dx*dx + dy*dy)
+        local nx = dx / (dist > 0 and dist or 1)
+        local ny = dy / (dist > 0 and dist or 1)
+        -- perpendicular vector for curvature
+        local px = -ny
+        local py = nx
+        local cx = ax + dx * 0.5 + px * (dist * curveK)
+        local cy = ay + dy * 0.5 + py * (dist * curveK)
+
+        love.graphics.setColor(color)
+        love.graphics.setLineWidth(width)
+        love.graphics.line(ax, ay, cx, cy, bx, by)
+
+        -- Arrow head at end (B) pointing toward direction
+        local angle = math.atan2(dy, dx)
+        local hx = math.cos(angle)
+        local hy = math.sin(angle)
+        local leftAngle = angle - math.pi * 0.8
+        local rightAngle = angle + math.pi * 0.8
+        love.graphics.line(
+            bx, by,
+            bx - math.cos(leftAngle) * head,
+            by - math.sin(leftAngle) * head
+        )
+        love.graphics.line(
+            bx, by,
+            bx - math.cos(rightAngle) * head,
+            by - math.sin(rightAngle) * head
+        )
         love.graphics.setLineWidth(1)
     end
     -- Reset color to avoid tinting subsequent draws
