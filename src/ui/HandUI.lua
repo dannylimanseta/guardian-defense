@@ -121,6 +121,8 @@ function HandUI:draw()
         love.graphics.line(self.drag.startX, self.drag.startY, self.drag.mx, self.drag.my)
         love.graphics.setLineWidth(1)
     end
+    -- Reset color to avoid tinting subsequent draws
+    love.graphics.setColor(1, 1, 1, 1)
 end
 
 return HandUI

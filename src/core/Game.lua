@@ -71,6 +71,8 @@ function Game:draw()
     
     -- Present canvas to screen
     love.graphics.setCanvas()
+    -- Ensure no tint is applied to the canvas when drawing to screen
+    love.graphics.setColor(1, 1, 1, 1)
     love.graphics.push()
     love.graphics.translate(ResolutionManager.offsetX + (self.screenMoveX or 0), ResolutionManager.offsetY + (self.screenMoveY or 0))
     love.graphics.scale(ResolutionManager.scale)
