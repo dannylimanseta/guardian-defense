@@ -152,9 +152,10 @@ function HandUI:draw()
             love.graphics.setColor(1, 1, 1, 1)
             local iw = self.cardTemplate:getWidth()
             local ih = self.cardTemplate:getHeight()
-            local sx = cw / iw
-            local sy = ch / ih
-            love.graphics.draw(self.cardTemplate, x, y, 0, sx, sy)
+            -- draw at native 1x scale, centered in the card slot
+            local drawX = x + (cw - iw) / 2
+            local drawY = y + (ch - ih) / 2
+            love.graphics.draw(self.cardTemplate, drawX, drawY, 0, 1, 1)
         else
             love.graphics.setColor(0.15, 0.15, 0.2, 0.95)
             love.graphics.rectangle('fill', x, y, cw, ch, 6, 6)
