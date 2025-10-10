@@ -21,6 +21,12 @@ function HandUI:new(deckManager)
         my = 0,
         locked = false
     }
+    self.arrowState = {
+        side = 1, -- 1 or -1 for curve side
+        tweenSide = 1,
+        tweenT = 1,
+        tweenDur = (Config.DECK.ARROW and Config.DECK.ARROW.FLIP_TWEEN_DURATION) or 0.1
+    }
     return self
 end
 
@@ -69,6 +75,13 @@ function HandUI:mousemoved(x, y, dx, dy)
     if self.drag.active then
         self.drag.mx = x
         self.drag.my = y
+        -- determine target side based on relative x position
+        local targetSide = (x > (self.drag.anchorX ~= 0 and self.drag.anchorX or self.drag.startX)) and -1 or 1
+        if targetSide ~= self.arrowState.side then
+            -- start flip tween
+            self.arrowState.side = targetSide
+            self.arrowState.tweenT = 0
+        end
         return true
     end
     return false
@@ -161,8 +174,20 @@ function HandUI:draw()
         -- perpendicular vector for curvature
         local px = -ny
         local py = nx
-        -- Flip curvature when target is to the right of the card anchor
-        local sign = (bx > ax) and -1 or 1
+        -- Flip curvature side with tweening
+        -- Compute current tweened sign between previous and target side
+        local targetSign = ((bx > ax) and -1 or 1)
+        local t = math.min(1, self.arrowState.tweenT or 1)
+        -- ease function (smoothstep)
+        local u = t * t * (3 - 2 * t)
+        local sign = ((self.arrowState.side == -1) and (-1) or 1)
+        if self.arrowState.tweenT and self.arrowState.tweenT < 1 then
+            -- blend from -sign to sign
+            local from = -sign
+            local to = sign
+            local blend = from * (1 - u) + to * u
+            sign = blend
+        end
         local cx = ax + dx * 0.5 + px * (dist * curveK * sign)
         local cy = ay + dy * 0.5 + py * (dist * curveK * sign)
 
@@ -206,6 +231,18 @@ function HandUI:draw()
     end
     -- Reset color to avoid tinting subsequent draws
     love.graphics.setColor(1, 1, 1, 1)
+end
+
+function HandUI:update(dt)
+    -- advance flip tween if active
+    if self.arrowState and self.arrowState.tweenT and self.arrowState.tweenT < 1 then
+        local dur = self.arrowState.tweenDur or 0.1
+        if dur <= 0 then
+            self.arrowState.tweenT = 1
+        else
+            self.arrowState.tweenT = math.min(1, self.arrowState.tweenT + dt / dur)
+        end
+    end
 end
 
 return HandUI

@@ -44,6 +44,9 @@ end
 function Game:update(dt)
     ResolutionManager:update()
     self.gridMap:update(dt)
+    if self.handUI and self.handUI.update then
+        self.handUI:update(dt)
+    end
     -- Decay screen move offsets
     if self.screenMoveX or self.screenMoveY then
         self.screenMoveX = (self.screenMoveX or 0) * math.max(0, 1 - 8 * dt)

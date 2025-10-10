@@ -132,8 +132,8 @@ Config.DECK = {
         COLOR = {1, 1, 1, 0.85},
         WIDTH = 3,
         HEAD_SIZE = 10,
-        CURVE_STRENGTH = 0.18, -- curvature factor relative to distance
-        CURVE_SIGN = -1 -- flip curve direction (-1 to flip, 1 default)
+        CURVE_STRENGTH = 0.28, -- stronger curvature factor relative to distance
+        FLIP_TWEEN_DURATION = 0.12 -- seconds to animate side flip
     }
 }
 
