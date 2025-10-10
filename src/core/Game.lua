@@ -32,14 +32,14 @@ function Game:init()
     self.effect = nil
     self.postFXEnabled = false
     
-    print("Guardian Defense initialized successfully!")
-end
-
     -- Initialize deck/hand systems
     self.deck = DeckManager:new()
     self.deck:loadOrCreateDeck()
     self.deck:startWave()
     self.handUI = HandUI:new(self.deck)
+
+    print("Guardian Defense initialized successfully!")
+end
 
 function Game:update(dt)
     ResolutionManager:update()
