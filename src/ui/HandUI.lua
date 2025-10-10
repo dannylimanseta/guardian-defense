@@ -146,7 +146,7 @@ function HandUI:draw()
         local color = arrow.COLOR or {1,1,1,0.85}
         local width = arrow.WIDTH or 3
         local head = arrow.HEAD_SIZE or 10
-        local curveK = (arrow.CURVE_STRENGTH or 0.2) * (arrow.CURVE_SIGN or 1)
+        local curveK = arrow.CURVE_STRENGTH or 0.2
         local ax = self.drag.anchorX ~= 0 and self.drag.anchorX or self.drag.startX
         local ay = self.drag.anchorY ~= 0 and self.drag.anchorY or self.drag.startY
         local bx = self.drag.mx
@@ -161,8 +161,10 @@ function HandUI:draw()
         -- perpendicular vector for curvature
         local px = -ny
         local py = nx
-        local cx = ax + dx * 0.5 + px * (dist * curveK)
-        local cy = ay + dy * 0.5 + py * (dist * curveK)
+        -- Flip curvature when target is to the right of the card anchor
+        local sign = (bx > ax) and -1 or 1
+        local cx = ax + dx * 0.5 + px * (dist * curveK * sign)
+        local cy = ay + dy * 0.5 + py * (dist * curveK * sign)
 
         love.graphics.setColor(color)
         love.graphics.setLineWidth(width)
