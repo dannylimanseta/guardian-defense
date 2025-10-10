@@ -148,10 +148,10 @@ local function parseLayers(content, width, height, tileWidth, tileHeight)
     local orderedLayers = {}
     local layerLookup = {}
 
-    -- Tiled flip flags
-    local FLIP_H = 0x80000000
-    local FLIP_V = 0x40000000
-    local FLIP_D = 0x20000000
+    -- Tiled flip flags (use powers of two to avoid bitwise ops)
+    local FLIP_H = 2^31
+    local FLIP_V = 2^30
+    local FLIP_D = 2^29
 
     for name, data in content:gmatch('<layer[^>]-name="([^"]+)"[^>]*>.-<data[^>]*>(.-)</data>') do
         local tileIds = parseCSVLayer(data, width, height)
@@ -162,19 +162,14 @@ local function parseLayers(content, width, height, tileWidth, tileHeight)
             tilesMatrix[x] = {}
             for y = 1, height do
                 local gid = tileIds[x][y]
-                local flipX = (bit32 and bit32.band(gid, FLIP_H) ~= 0) or (gid >= FLIP_H)
-                local flipY = (bit32 and bit32.band(gid, FLIP_V) ~= 0) or (gid % (2^31) >= FLIP_V)
-                local flipD = (bit32 and bit32.band(gid, FLIP_D) ~= 0) or false
-                -- mask off high bits if present
+                -- Decode flip flags without bitwise operators
+                local flipX = gid >= FLIP_H
+                if flipX then gid = gid - FLIP_H end
+                local flipY = gid >= FLIP_V
+                if flipY then gid = gid - FLIP_V end
+                local flipD = gid >= FLIP_D
+                if flipD then gid = gid - FLIP_D end
                 local id = gid
-                if gid >= 2^29 then
-                    id = gid & 0x1FFFFFFF
-                end
-                -- Lua 5.1 doesn't have &; fallback using math if needed
-                if not id or id == gid then
-                    local mask = 0x1FFFFFFF
-                    id = gid % (mask + 1)
-                end
                 local tileData = buildTileData(id, x, y, tileWidth, tileHeight, flipX, flipY, flipD)
                 tilesMatrix[x][y] = tileData
 
