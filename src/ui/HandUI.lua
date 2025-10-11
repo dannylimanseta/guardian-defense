@@ -76,6 +76,88 @@ local function shallowCopyList(src)
     return out
 end
 
+-- Simple word-wrapping helper returning a list of lines that fit within maxWidth
+local function wrapText(font, text, maxWidth)
+    local lines = {}
+    local current = ""
+    for token in tostring(text):gmatch("[^\n]+\n?" ) do
+        local chunk = token
+        if chunk:sub(-1) == "\n" then
+            chunk = chunk:sub(1, -2)
+            -- flush existing line before explicit newline
+            local words = {}
+            for w in chunk:gmatch("%S+") do words[#words+1] = w end
+            for i = 1, #words do
+                local trial = (current ~= "" and (current .. " " .. words[i]) or words[i])
+                if font:getWidth(trial) <= maxWidth then
+                    current = trial
+                else
+                    if current ~= "" then lines[#lines+1] = current end
+                    current = words[i]
+                end
+            end
+            lines[#lines+1] = current
+            current = ""
+        else
+            local words = {}
+            for w in chunk:gmatch("%S+") do words[#words+1] = w end
+            for i = 1, #words do
+                local trial = (current ~= "" and (current .. " " .. words[i]) or words[i])
+                if font:getWidth(trial) <= maxWidth then
+                    current = trial
+                else
+                    if current ~= "" then lines[#lines+1] = current end
+                    current = words[i]
+                end
+            end
+        end
+    end
+    if current ~= "" then lines[#lines+1] = current end
+    if #lines == 0 then lines[1] = "" end
+    return lines
+end
+
+-- Shared cardface text render to keep dragged and undragged layouts identical
+local function drawCardFaceText(def, id, halfW, topY)
+	if not def then
+		Theme.drawText(id or '', -halfW + 16, topY + 8 + 20 - 15, Theme.FONTS.MEDIUM, Theme.COLORS.WHITE)
+		return
+	end
+	-- energy cost number at top-right inside the card (based on actual drawn bounds)
+	local costStr = tostring(def.cost or 0)
+	local costFont = Theme.FONTS.BOLD_MEDIUM
+	love.graphics.setFont(costFont)
+	love.graphics.setColor(Theme.COLORS.WHITE)
+	local costW = costFont:getWidth(costStr)
+	local costX = halfW - 19 - costW
+	local costY = topY - 5
+	love.graphics.print(costStr, costX, costY)
+
+	-- content block (left aligned)
+	local SHIFT_DOWN = 20
+	local leftX = -halfW + 16
+	local titleY = topY + 8 + SHIFT_DOWN - 15
+	Theme.drawText(def.name or id, leftX + 5, titleY, Theme.FONTS.BOLD_LARGE, Theme.COLORS.WHITE)
+	-- LV label below name (smaller, bold)
+	if def.level then
+		local lvY = titleY + Theme.FONTS.BOLD_LARGE:getHeight() + 2
+		Theme.drawText(string.format('LV %d', def.level), leftX + 5, lvY, Theme.FONTS.BOLD_SMALL, Theme.COLORS.ACCENT)
+		-- description below LV
+		if def.description and #def.description > 0 then
+			local descY = lvY + Theme.FONTS.SMALL:getHeight() + 6 + 100
+			local font = Theme.FONTS.MEDIUM
+			love.graphics.setFont(font)
+			love.graphics.setColor(Theme.COLORS.WHITE)
+			local wrapW = halfW * 2 - 32
+			local lines = wrapText(font, def.description, wrapW)
+			local lh = font:getHeight() * 0.9
+			for li = 1, #lines do
+				love.graphics.print(lines[li], leftX, descY + (li - 1) * lh)
+			end
+		end
+	end
+end
+
 local function buildIdQueues(ids)
     local q = {}
     for i = 1, #ids do
@@ -177,20 +259,25 @@ function HandUI:getCardTransform(i, handCount, isHovered)
 	return cx, cy, rot, cw, ch
 end
 
-local function getDrawOrder(handCount)
-	local order = {}
-	for i = 1, handCount do order[i] = i end
-	-- draw edges first, center last
-	table.sort(order, function(a, b)
-		local center = (handCount + 1) * 0.5
-		local da = math.abs(a - center)
-		local db = math.abs(b - center)
-		if da == db then
-			return a < b
-		end
-		return da > db
-	end)
-	return order
+local function getDrawOrder(handCount, preferLeftmostTop)
+    local order = {}
+    -- When not dragging (preferLeftmostTop), draw from right to left so left neighbors are always on top
+    if preferLeftmostTop then
+        for i = handCount, 1, -1 do order[#order+1] = i end
+        return order
+    end
+    -- default behavior: draw edges first, center last
+    for i = 1, handCount do order[i] = i end
+    table.sort(order, function(a, b)
+        local center = (handCount + 1) * 0.5
+        local da = math.abs(a - center)
+        local db = math.abs(b - center)
+        if da == db then
+            return a < b
+        end
+        return da > db
+    end)
+    return order
 end
 
 function HandUI:getCardRect(i, handCount)
@@ -230,7 +317,8 @@ function HandUI:getCardHitSize()
         vw = math.max(cw, iw * scale)
         vh = math.max(ch, ih * scale)
     end
-    return vw, vh
+    local hitScale = (Config.DECK.CARD_HIT_SCALE or 1)
+    return vw * hitScale, vh * hitScale
 end
 
 function HandUI:mousepressed(x, y, button)
@@ -284,7 +372,10 @@ function HandUI:mousemoved(x, y, dx, dy)
 	-- update hover when not dragging (top-most hit wins)
     local hand = self.deck:getHand()
     local n = #hand
-    local order = getDrawOrder(n)
+    local order = getDrawOrder(n, true)
+    local hand = self.deck:getHand()
+    local n = #hand
+    local order = getDrawOrder(n, true)
     self.hoverIndex = nil
     for k = #order, 1, -1 do
         local i = order[k]
@@ -292,10 +383,14 @@ function HandUI:mousemoved(x, y, dx, dy)
         local wHit, hHit = (self:getCardHitSize())
         local hw = ((hHit or ch)) * 0.5
         local hh = ((wHit or cw)) * 0.5
-        if pointInOBB(x, y, cx, cy, rot, hw, hh) then
-            self.hoverIndex = i
-            break
-        end
+		if pointInOBB(x, y, cx, cy, rot, hw, hh) then
+			-- Only show hover if the card is currently playable (eligible interactivity)
+			local canPlay = self.deck:canPlayCard(hand[i])
+			if canPlay then
+				self.hoverIndex = i
+				break
+			end
+		end
     end
 	return self.hoverIndex ~= nil
 end
@@ -356,8 +451,8 @@ function HandUI:draw()
     Theme.drawText(text, pad, Config.LOGICAL_HEIGHT - 24 - pad, Theme.FONTS.MEDIUM, Theme.COLORS.WHITE)
 
     -- Cards (fan layout)
-	local n = #hand
-	local order = getDrawOrder(n)
+    local n = #hand
+    local order = getDrawOrder(n, not self.drag.active)
 	local draggingIndex = (self.drag.active and self.drag.cardIndex) or nil
 	local hoveredIndex = (not self.drag.active) and self.hoverIndex or nil
 
@@ -405,13 +500,18 @@ function HandUI:draw()
 			love.graphics.setColor(1, 1, 1, 1)
 			love.graphics.rectangle('line', -cw2, -ch2, cw, ch, 6, 6)
 		end
-		-- name and cost
-		if def then
-			Theme.drawText(def.name or id, -cw2 + 8, -ch2 + 8, Theme.FONTS.MEDIUM, Theme.COLORS.WHITE)
-			Theme.drawText(tostring(def.cost or 0), cw2 - 20, -ch2 + 8, Theme.FONTS.MEDIUM, Theme.COLORS.SECONDARY)
-		else
-			Theme.drawText(id, -cw2 + 8, -ch2 + 8, Theme.FONTS.MEDIUM, Theme.COLORS.WHITE)
-		end
+		-- Left-aligned layout: cost top-right, title then LV below, then description
+		-- derive bounds consistently with dragged version
+		local tmplScale = Config.DECK.CARD_TEMPLATE_SCALE or 0.7
+		local texW = (self.cardTemplate and (self.cardTemplate:getWidth() * tmplScale)) or cw
+		local texH = (self.cardTemplate and (self.cardTemplate:getHeight() * tmplScale)) or ch
+		local baseHalfW = math.max(cw, texW) * 0.5
+		local baseHalfH = math.max(ch, texH) * 0.5
+		local shrink = (Config.DECK.CARD_BOUNDS_SHRINK_FRAC or 1)
+		local halfW = baseHalfW * shrink
+		local topY = -baseHalfH + (Config.DECK.CARD_BOUNDS_OFFSET_Y or 0)
+		drawCardFaceText(def, id, halfW, topY)
+
 		love.graphics.pop()
 	end
 
@@ -441,7 +541,12 @@ function HandUI:draw()
 		local dt = love.timer.getDelta and love.timer.getDelta() or 0.016
 		self.drag.smoothX = self.drag.smoothX + (targetX + cw / 2 - self.drag.smoothX) * math.min(1, follow * dt)
 		self.drag.smoothY = self.drag.smoothY + (targetY + ch / 2 - self.drag.smoothY) * math.min(1, follow * dt)
-		local clampY = Config.DECK.DRAG_CLAMP_Y or (Config.LOGICAL_HEIGHT - Config.DECK.CARD_HEIGHT - Config.DECK.HAND_MARGIN - 60)
+        local clampY
+        if Config.DECK.DRAG_CLAMP_Y_FRAC and type(Config.DECK.DRAG_CLAMP_Y_FRAC) == 'number' then
+            clampY = (Config.DECK.DRAG_CLAMP_Y_FRAC) * (Config.LOGICAL_HEIGHT)
+        else
+            clampY = Config.DECK.DRAG_CLAMP_Y or (Config.LOGICAL_HEIGHT - Config.DECK.CARD_HEIGHT - Config.DECK.HAND_MARGIN - 60)
+        end
 		if not self.drag.locked then
 			if targetY < clampY then
 				self.drag.locked = true
@@ -495,12 +600,17 @@ function HandUI:draw()
 			love.graphics.setColor(1, 1, 1, 1)
 			love.graphics.rectangle('line', -cw2, -ch2, cw, ch, 6, 6)
 		end
-		if def then
-			Theme.drawText(def.name or id, -cw2 + 8, -ch2 + 8, Theme.FONTS.MEDIUM, Theme.COLORS.WHITE)
-			Theme.drawText(tostring(def.cost or 0), cw2 - 20, -ch2 + 8, Theme.FONTS.MEDIUM, Theme.COLORS.SECONDARY)
-		else
-			Theme.drawText(id, -cw2 + 8, -ch2 + 8, Theme.FONTS.MEDIUM, Theme.COLORS.WHITE)
-		end
+		-- derive actual drawn bounds (template vs logical), with optional shrink
+		local tmplScale = Config.DECK.CARD_TEMPLATE_SCALE or 0.7
+		local texW = (self.cardTemplate and (self.cardTemplate:getWidth() * tmplScale)) or cw
+		local texH = (self.cardTemplate and (self.cardTemplate:getHeight() * tmplScale)) or ch
+		local baseHalfW = math.max(cw, texW) * 0.5
+		local baseHalfH = math.max(ch, texH) * 0.5
+		local shrink = (Config.DECK.CARD_BOUNDS_SHRINK_FRAC or 1)
+		local halfW = baseHalfW * shrink
+		local topY = -baseHalfH + (Config.DECK.CARD_BOUNDS_OFFSET_Y or 0)
+		drawCardFaceText(def, id, halfW, topY)
+
 		love.graphics.pop()
 	end
 
@@ -637,12 +747,33 @@ function HandUI:draw()
             love.graphics.setColor(1, 1, 1, alpha)
             love.graphics.rectangle('line', -cw2, -ch2, cw, ch, 6, 6)
         end
-        if defAnim then
-            Theme.drawText(defAnim.name or anim.id or '', -cw2 + 8, -ch2 + 8, Theme.FONTS.MEDIUM, {1,1,1,alpha})
-            Theme.drawText(tostring(defAnim.cost or 0), cw2 - 20, -ch2 + 8, Theme.FONTS.MEDIUM, {Theme.COLORS.SECONDARY[1], Theme.COLORS.SECONDARY[2], Theme.COLORS.SECONDARY[3], alpha})
-        elseif anim.id then
-            Theme.drawText(anim.id, -cw2 + 8, -ch2 + 8, Theme.FONTS.MEDIUM, {1,1,1,alpha})
-        end
+		if defAnim then
+			-- energy cost number at top-center (shifted up into diamond)
+			local costY = -ch2 - 8
+            Theme.drawTextCentered(tostring(defAnim.cost or 0), 0, costY, Theme.FONTS.BOLD_MEDIUM, {1,1,1,alpha})
+
+			if defAnim.level then
+                local SHIFT_DOWN = 20
+                local levelY = costY + Theme.FONTS.BOLD_MEDIUM:getHeight() + 4 + SHIFT_DOWN
+                Theme.drawTextCentered(string.format('LEVEL %d', defAnim.level), 0, levelY, Theme.FONTS.LARGE, {Theme.COLORS.ACCENT[1],Theme.COLORS.ACCENT[2],Theme.COLORS.ACCENT[3],alpha})
+			end
+            local titleY = costY + Theme.FONTS.BOLD_MEDIUM:getHeight() + 4 + 20 + Theme.FONTS.LARGE:getHeight() + 6
+            Theme.drawShadowTextCentered(defAnim.name or anim.id or '', 0, titleY, Theme.FONTS.BOLD_LARGE, {1,1,1,alpha})
+			if defAnim.description and #defAnim.description > 0 then
+                local descY = titleY + Theme.FONTS.BOLD_LARGE:getHeight() + 6
+                local font = Theme.FONTS.MEDIUM
+				love.graphics.setFont(font)
+				love.graphics.setColor(1,1,1,alpha)
+				local lines = wrapText(font, defAnim.description, cw - 32)
+				local lh = font:getHeight() * 0.9
+				for li = 1, #lines do
+					local w = font:getWidth(lines[li])
+					love.graphics.print(lines[li], -w * 0.5, descY + (li - 1) * lh)
+				end
+			end
+		elseif anim.id then
+			Theme.drawTextCentered(anim.id, 0, -ch2 + 8, Theme.FONTS.MEDIUM, {1,1,1,alpha})
+		end
         love.graphics.pop()
     end
     -- Reset color to avoid tinting subsequent draws
