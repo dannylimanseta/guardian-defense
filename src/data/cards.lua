@@ -5,9 +5,11 @@ local cards = {}
 cards.catalog = {
     crossbow_basic = {
         id = "crossbow_basic",
-        name = "Crossbow Tower",
+        name = "Crossbow turret",
         type = "place_tower",
-        cost = 1, -- energy cost
+        cost = 2, -- energy cost
+        description = "Fires 1 arrow at the enemy.",
+        level = 1,
         payload = {
             tower = "crossbow"
         }

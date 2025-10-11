@@ -117,34 +117,83 @@ local function wrapText(font, text, maxWidth)
     return lines
 end
 
+-- Cache for card art images by card id
+local cardArtCache = {}
+
+local function loadCardArtForId(cardId)
+	if not cardId then return nil end
+	if cardArtCache[cardId] ~= nil then return cardArtCache[cardId] end
+	local artName
+	-- Simple mapping: any card id containing 'crossbow' uses card_crossbow.png
+	if tostring(cardId):find('crossbow', 1, true) then
+		artName = 'card_crossbow.png'
+	end
+	if not artName then
+		cardArtCache[cardId] = false
+		return nil
+	end
+	-- Candidate paths to try
+	local candidates = {
+		string.format('%s/%s', Config.ENTITIES_PATH, 'cards/' .. artName),
+		'assets/images/cards/' .. artName,
+		string.format('%s/%s', Config.ENTITIES_PATH, artName)
+	}
+	for i = 1, #candidates do
+		local path = candidates[i]
+		if love.filesystem.getInfo(path) then
+			local img = love.graphics.newImage(path)
+			img:setFilter('nearest', 'nearest')
+			cardArtCache[cardId] = img
+			return img
+		end
+	end
+	cardArtCache[cardId] = false
+	return nil
+end
+
 -- Shared cardface text render to keep dragged and undragged layouts identical
-local function drawCardFaceText(def, id, halfW, topY)
+local function drawCardFaceText(def, id, halfW, topY, baseHalfH)
 	if not def then
 		Theme.drawText(id or '', -halfW + 16, topY + 8 + 20 - 15, Theme.FONTS.MEDIUM, Theme.COLORS.WHITE)
 		return
 	end
 	-- energy cost number at top-right inside the card (based on actual drawn bounds)
 	local costStr = tostring(def.cost or 0)
-	local costFont = Theme.FONTS.BOLD_MEDIUM
+	local costFont = Theme.FONTS.BOLD_LARGE
 	love.graphics.setFont(costFont)
 	love.graphics.setColor(Theme.COLORS.WHITE)
 	local costW = costFont:getWidth(costStr)
-	local costX = halfW - 19 - costW
+	local costX = -halfW + 21
 	local costY = topY - 5
 	love.graphics.print(costStr, costX, costY)
+
+	-- Optional card art centered in the top half
+	local art = loadCardArtForId(def.id or id)
+	if art then
+		love.graphics.setColor(1, 1, 1, 1)
+		local iw, ih = art:getWidth(), art:getHeight()
+		local maxW = halfW * 2 - 40
+		local maxH = (baseHalfH or (halfW)) - 20
+		local fitScale = math.min(maxW / iw, maxH / ih)
+		local scale = math.min(fitScale * 1.07, 1)
+		local centerY = topY + (baseHalfH and (baseHalfH * 0.5) or (maxH * 0.5))
+		local drawX = - (iw * scale) * 0.5
+		local drawY = centerY - (ih * scale) * 0.5 - 14
+		love.graphics.draw(art, drawX, drawY, 0, scale, scale)
+	end
 
 	-- content block (left aligned)
 	local SHIFT_DOWN = 20
 	local leftX = -halfW + 16
-	local titleY = topY + 8 + SHIFT_DOWN - 15
-	Theme.drawText(def.name or id, leftX + 5, titleY, Theme.FONTS.BOLD_LARGE, Theme.COLORS.WHITE)
+	local titleY = topY + 8 + SHIFT_DOWN - 15 - 20
+	Theme.drawText(def.name or id, leftX + 30, titleY + 6, Theme.FONTS.BOLD_MEDIUM, Theme.COLORS.WHITE)
 	-- LV label below name (smaller, bold)
 	if def.level then
-		local lvY = titleY + Theme.FONTS.BOLD_LARGE:getHeight() + 2
-		Theme.drawText(string.format('LV %d', def.level), leftX + 5, lvY, Theme.FONTS.BOLD_SMALL, Theme.COLORS.ACCENT)
+		local lvY = titleY + Theme.FONTS.BOLD_LARGE:getHeight() + 12
+		Theme.drawText(string.format('LV %d', def.level), leftX - 1, lvY + 3, Theme.FONTS.BOLD_SMALL, Theme.COLORS.WHITE)
 		-- description below LV
 		if def.description and #def.description > 0 then
-			local descY = lvY + Theme.FONTS.SMALL:getHeight() + 6 + 100
+			local descY = lvY + Theme.FONTS.SMALL:getHeight() + 6 + 110
 			local font = Theme.FONTS.MEDIUM
 			love.graphics.setFont(font)
 			love.graphics.setColor(Theme.COLORS.WHITE)
@@ -261,9 +310,9 @@ end
 
 local function getDrawOrder(handCount, preferLeftmostTop)
     local order = {}
-    -- When not dragging (preferLeftmostTop), draw from right to left so left neighbors are always on top
+    -- When not dragging (preferLeftmostTop), draw from left to right so rightmost ends up on top
     if preferLeftmostTop then
-        for i = handCount, 1, -1 do order[#order+1] = i end
+        for i = 1, handCount do order[#order+1] = i end
         return order
     end
     -- default behavior: draw edges first, center last
@@ -452,7 +501,7 @@ function HandUI:draw()
 
     -- Cards (fan layout)
     local n = #hand
-    local order = getDrawOrder(n, not self.drag.active)
+    local order = getDrawOrder(n, true)
 	local draggingIndex = (self.drag.active and self.drag.cardIndex) or nil
 	local hoveredIndex = (not self.drag.active) and self.hoverIndex or nil
 
@@ -510,7 +559,7 @@ function HandUI:draw()
 		local shrink = (Config.DECK.CARD_BOUNDS_SHRINK_FRAC or 1)
 		local halfW = baseHalfW * shrink
 		local topY = -baseHalfH + (Config.DECK.CARD_BOUNDS_OFFSET_Y or 0)
-		drawCardFaceText(def, id, halfW, topY)
+		drawCardFaceText(def, id, halfW, topY, baseHalfH)
 
 		love.graphics.pop()
 	end
@@ -609,7 +658,7 @@ function HandUI:draw()
 		local shrink = (Config.DECK.CARD_BOUNDS_SHRINK_FRAC or 1)
 		local halfW = baseHalfW * shrink
 		local topY = -baseHalfH + (Config.DECK.CARD_BOUNDS_OFFSET_Y or 0)
-		drawCardFaceText(def, id, halfW, topY)
+		drawCardFaceText(def, id, halfW, topY, baseHalfH)
 
 		love.graphics.pop()
 	end

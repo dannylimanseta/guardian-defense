@@ -19,7 +19,7 @@ If you have multiple Love2D versions installed, explicitly run 11.4 with your la
 - **Mouse Left**: select tile / place tower on build spot
 - **S**: spawn a single enemy immediately (debug)
 - **R**: reset grid
-- **Space**: clear selection
+- **Space**: start next wave
 - **F11** or **F**: toggle fullscreen
 - **I**: print resolution info
 - **Esc**: quit

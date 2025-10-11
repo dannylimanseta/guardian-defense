@@ -1,6 +1,7 @@
 -- TowerManager.lua - manages towers: placement, targeting, firing
 
 local Config = require 'src/config/Config'
+local TowerDefs = require 'src/data/towers'
 
 local TowerManager = {}
 TowerManager.__index = TowerManager
@@ -13,8 +14,22 @@ function TowerManager:new()
     return self
 end
 
-function TowerManager:placeTower(x, y)
-    self.towers[#self.towers + 1] = { x = x, y = y, cooldown = 0, angleCurrent = 0, angleTarget = 0, recoil = 0, acquireTimer = 0, targetEnemy = nil, spawnT = 0, particles = nil, spawnPoofDone = false }
+function TowerManager:placeTower(x, y, towerId, level)
+    self.towers[#self.towers + 1] = {
+        x = x,
+        y = y,
+        towerId = towerId or 'crossbow',
+        level = level or 1,
+        cooldown = 0,
+        angleCurrent = 0,
+        angleTarget = 0,
+        recoil = 0,
+        acquireTimer = 0,
+        targetEnemy = nil,
+        spawnT = 0,
+        particles = nil,
+        spawnPoofDone = false
+    }
 end
 
 function TowerManager:getTowers()
@@ -34,6 +49,7 @@ function TowerManager:update(dt, tileSize, enemies, projectiles)
         t.spawnT = math.min((t.spawnT or 0) + dt, (Config.TOWER.SPAWN_ANIM and Config.TOWER.SPAWN_ANIM.DURATION) or 0)
         t.cooldown = math.max(0, (t.cooldown or 0) - dt)
         -- Acquire nearest target in range
+        local stats = TowerDefs.getStats(t.towerId or 'crossbow', t.level or 1)
         local best, bestDist2
         for _, e in ipairs(enemies) do
             local a = e.path[math.max(1, e.pathIndex)]
@@ -49,7 +65,7 @@ function TowerManager:update(dt, tileSize, enemies, projectiles)
             local dx = ex - tx
             local dy = ey - ty
             local dist2 = dx*dx + dy*dy
-            local maxRange = Config.TOWER.RANGE_TILES * tileSize
+            local maxRange = (stats.rangePx or (Config.TOWER.RANGE_TILES * tileSize))
             if dist2 <= maxRange*maxRange then
                 if not bestDist2 or dist2 < bestDist2 then
                     best = { ex = ex, ey = ey, enemy = e }
@@ -82,15 +98,28 @@ function TowerManager:update(dt, tileSize, enemies, projectiles)
             if (t.acquireTimer or 0) > 0 or math.abs(angDiff) > alignRad then
                 goto continue
             end
-            t.cooldown = Config.TOWER.FIRE_COOLDOWN
+            t.cooldown = stats.fireCooldown or Config.TOWER.FIRE_COOLDOWN
             local px = (t.x - 0.5) * tileSize
             local py = (t.y - 0.5) * tileSize
+            -- compute projectile damage with crit
+            local dmgMin = stats.damageMin or Config.TOWER.PROJECTILE_DAMAGE
+            local dmgMax = stats.damageMax or Config.TOWER.PROJECTILE_DAMAGE
+            local dmg = dmgMin + math.random() * math.max(0, (dmgMax - dmgMin))
+            local critChance = stats.critChance or 0
+            local isCrit = false
+            if math.random() < critChance then
+                isCrit = true
+                local cmin = stats.critDamageMin or dmgMin * 2
+                local cmax = stats.critDamageMax or dmgMax * 2
+                dmg = cmin + math.random() * math.max(0, (cmax - cmin))
+            end
             projectiles[#projectiles + 1] = {
                 x = px,
                 y = py,
                 angle = t.angleCurrent,
                 speed = Config.TOWER.PROJECTILE_SPEED_TPS * tileSize,
-                damage = Config.TOWER.PROJECTILE_DAMAGE,
+                damage = dmg,
+                crit = isCrit,
                 alive = true
             }
             t.recoil = (t.recoil or 0) + Config.TOWER.RECOIL_PIXELS

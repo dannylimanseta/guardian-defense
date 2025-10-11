@@ -5,13 +5,13 @@ local Config = {}
 
 -- Window and Resolution Settings
 Config.WINDOW_TITLE = "Guardian Defense"
-Config.LOGICAL_WIDTH = 1280  -- Design resolution width
-Config.LOGICAL_HEIGHT = 720  -- Design resolution height
+Config.LOGICAL_WIDTH = 1440  -- Design resolution width
+Config.LOGICAL_HEIGHT = 900  -- Design resolution height
 
 -- Grid Map Settings
 Config.GRID_WIDTH = 25       -- Number of tiles horizontally
 Config.GRID_HEIGHT = 12      -- Number of tiles vertically
-Config.TILE_SIZE = 50        -- Size of each tile in pixels
+Config.TILE_SIZE = 70        -- Size of each tile in pixels
 Config.TILESET_PATH = "assets/images/tiles"
 Config.ENTITIES_PATH = "assets/images/entities"
 Config.LEVELS_PATH = "assets/levels"
@@ -52,8 +52,9 @@ Config.ENEMY_HP_BAR = {
     WIDTH = 20,
     HEIGHT = 3,
     OFFSET_Y = -10, -- relative to enemy top center in pixels
-    BG_COLOR = {0, 0, 0, 0.8},
-    FG_COLOR = {0.6, 1, 0.3, 1}
+    BG_COLOR = {1, 1, 1, 0.18},
+    FG_COLOR = {1, 1, 1, 1},
+    CORNER_RADIUS = 3
 }
 
 -- Enemy Settings
@@ -62,11 +63,15 @@ Config.ENEMY = {
     SPAWN_INTERVAL = 2,          -- Seconds between spawns
     MAX_ACTIVE = 20,             -- Max enemies active at once
     DAMAGE_ON_HIT = 1,           -- Damage to core on hit
-    DEFAULT_HP = 3,              -- Enemy starting HP
+    DEFAULT_HP = 60,              -- Enemy starting HP (tripled)
     KNOCKBACK_VELOCITY_PPS = 60, -- Knockback impulse (pixels per second)
     KNOCKBACK_DAMP = 8,          -- Velocity damping factor (per second)
     KNOCKBACK_RETURN_RATE = 1,   -- Offset return-to-rest rate (per second)
-    KNOCKBACK_ROT_IMPULSE = 2    -- Rotational impulse scale per hit
+    KNOCKBACK_ROT_IMPULSE = 2,   -- Rotational impulse scale per hit
+    -- Hit VFX
+    HIT_FLASH_DURATION = 0.12,   -- seconds the white flash/bloom lasts
+    HIT_GLOW_STRENGTH = 10,      -- moonshine glow blur strength (higher = blurrier)
+    HIT_GLOW_MIN_LUMA = 0.0      -- include all luma in glow threshold for strong bloom
 }
 
 -- Tower Settings
@@ -128,7 +133,14 @@ Config.DECK = {
     CARD_HEIGHT = 140,
     CARD_SPACING = 12,
     CARD_TEMPLATE_SCALE = 0.7,
-    DRAG_CLAMP_Y = 540, -- when dragging a card upward, clamp its Y to this (higher value = sooner)
+    CARD_HIT_SCALE = 1.5,
+    SHOW_CARD_BOUNDS = true,
+    CARD_BOUNDS_SHRINK_FRAC = 0.68,
+    CARD_BOUNDS_OFFSET_Y = 42,
+    -- Drag clamp: lock the card once cursor crosses this Y. Prefer fractional for resolution independence.
+    -- If DRAG_CLAMP_Y_FRAC is set, it's used as fraction of LOGICAL_HEIGHT. Otherwise uses DRAG_CLAMP_Y pixels.
+    DRAG_CLAMP_Y = 540,
+    DRAG_CLAMP_Y_FRAC = 0.75,
     CARD_LOCK_TWEEN_DURATION = 0.12,
     ARROW = {
         COLOR = {1, 1, 1, 0.85},
@@ -144,9 +156,19 @@ Config.DECK = {
         MIN_SPREAD_DEG = 16,       -- Minimum total spread when very few cards
         PER_CARD_SPREAD_DEG = 14,  -- Increment of spread per additional card
         ROTATION_SCALE = 1,        -- 1 = tangent to the arc, <1 reduces tilt
-        BASELINE_OFFSET_Y = 12,    -- Offset (pixels) to nudge baseline up/down
+        BASELINE_OFFSET_Y = 32,    -- Offset (pixels) to nudge baseline up/down (shifted +20px)
         HOVER_LIFT = 22            -- How much a hovered/dragged card lifts visually
     }
 }
+
+-- Difficulty presets for waves/enemies
+Config.DIFFICULTY_PRESETS = {
+    easy = { count = 0.9, spawnSpeed = 0.95, hp = 0.9, speed = 0.95, reward = 1.0 },
+    normal = { count = 1.0, spawnSpeed = 1.0, hp = 1.0, speed = 1.0, reward = 1.0 },
+    hard = { count = 1.2, spawnSpeed = 1.1, hp = 1.15, speed = 1.05, reward = 1.1 }
+}
+
+-- Current difficulty selection
+Config.CURRENT_DIFFICULTY = 'normal'
 
 return Config

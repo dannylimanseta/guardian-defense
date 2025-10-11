@@ -13,6 +13,7 @@ function love.conf(t)
     t.window.minwidth = 640
     t.window.minheight = 480
     t.window.vsync = 1
+    t.window.highdpi = true
     t.window.fullscreen = false
     t.window.fullscreentype = "desktop"
     

@@ -16,6 +16,7 @@ function EnemySpawnManager:new(mapData)
     self.coreHealth = Config.GAME.CORE_HEALTH
     self.enemySprite = nil
     self.flashChains = {}
+    self.floaters = {}
     -- Direct shader fallback for per-sprite white flash
     self.whitenShader = love.graphics.newShader([[
         extern number amount; // 0..1
@@ -25,6 +26,11 @@ function EnemySpawnManager:new(mapData)
             return vec4(outc, px.a);
         }
     ]])
+    -- PostFX chains for hit bloom
+    -- We keep a single chain sized to logical resolution and reuse it per enemy draw call
+    self.hitGlow = moonshine(Config.LOGICAL_WIDTH, Config.LOGICAL_HEIGHT, moonshine.effects.glow)
+    self.hitGlow.glow.min_luma = Config.ENEMY.HIT_GLOW_MIN_LUMA or 0.0
+    self.hitGlow.glow.strength = Config.ENEMY.HIT_GLOW_STRENGTH or 10
     return self
 end
 
@@ -38,14 +44,56 @@ local function computePath(mapData, spawnPos, corePos)
     return Pathfinder:findPath(mapData, spawnPos.x, spawnPos.y, corePos.x, corePos.y)
 end
 
+-- Public API for WaveManager: request spawning a specific enemy at a given spawn index
+function EnemySpawnManager:requestSpawn(enemyId, spawnIndex, modifiers)
+    if not self.mapData or not self.mapData.special then return false end
+    local spawns = self.mapData.special.enemy_spawns or {}
+    local core = self.mapData.special.core
+    if #spawns == 0 or not core then return false end
+
+    local index = math.max(1, math.min(#spawns, tonumber(spawnIndex) or 1))
+    local spawnPos = spawns[index]
+    local path = computePath(self.mapData, spawnPos, core)
+    if not path or #path == 0 then return false end
+
+    local speedTps = Config.ENEMY.SPEED_TILES_PER_SECOND
+    local hp = Config.ENEMY.DEFAULT_HP
+    local reward = 1
+    if modifiers then
+        if modifiers.speed and modifiers.speed ~= 1 then speedTps = speedTps * modifiers.speed end
+        if modifiers.hp and modifiers.hp ~= 1 then hp = math.floor(hp * modifiers.hp + 0.5) end
+        if modifiers.reward and modifiers.reward ~= 1 then reward = reward * modifiers.reward end
+    end
+
+    local enemy = {
+        gridX = spawnPos.x,
+        gridY = spawnPos.y,
+        path = path,
+        pathIndex = 1,
+        progress = 0,
+        speedTilesPerSecond = speedTps,
+        t = 0,
+        bobPhase = math.random() * math.pi * 2,
+        bobFreq = 10 + math.random() * 4,
+        bobAmp = (0.02 + math.random() * 0.02),
+        hp = hp,
+        maxHp = hp,
+        reward = reward,
+        -- hit effects
+        hitFlashTime = 0,
+        kox = 0, koy = 0,
+        kvx = 0, kvy = 0,
+        krot = 0, krotVel = 0
+    }
+    table.insert(self.enemies, enemy)
+    return true
+end
+
 function EnemySpawnManager:spawnEnemy()
     if not self.mapData or not self.mapData.special then return end
     local spawns = self.mapData.special.enemy_spawns or {}
     local core = self.mapData.special.core
     if #spawns == 0 or not core then
-        if Config.GAME.DEBUG_MODE then
-            print("Spawn failed: no spawn points or core not found")
-        end
         return false
     end
 
@@ -53,10 +101,6 @@ function EnemySpawnManager:spawnEnemy()
     local spawnPos = spawns[1]
     local path = computePath(self.mapData, spawnPos, core)
     if not path or #path == 0 then
-        if Config.GAME.DEBUG_MODE then
-            print(string.format("Spawn failed: no path from (%d,%d) to core (%d,%d). Ensure spawn is adjacent to a path tile.",
-                spawnPos.x, spawnPos.y, core.x, core.y))
-        end
         return false
     end
 
@@ -84,12 +128,12 @@ function EnemySpawnManager:spawnEnemy()
     return true
 end
 
-function EnemySpawnManager:damageEnemy(index, amount, hitDX, hitDY, hitStrength)
+function EnemySpawnManager:damageEnemy(index, amount, hitDX, hitDY, hitStrength, isCrit)
     local e = self.enemies[index]
     if not e then return end
     e.hp = math.max(0, e.hp - (amount or 1))
     -- Trigger hit flash and knockback
-    e.hitFlashTime = 0.12
+    e.hitFlashTime = Config.ENEMY.HIT_FLASH_DURATION or 0.12
     local strength = (hitStrength or 1) * Config.ENEMY.KNOCKBACK_VELOCITY_PPS
     if hitDX and hitDY then
         -- push enemy away from the projectile impact
@@ -101,6 +145,34 @@ function EnemySpawnManager:damageEnemy(index, amount, hitDX, hitDY, hitStrength)
     if e.hp <= 0 then
         table.remove(self.enemies, index)
     end
+    -- spawn floating damage text near the enemy's current tile center (pixel space relative to grid origin)
+    local jx = (hitDX or 0) * 6
+    local jy = (hitDY or 0) * 6
+    -- anchor at the enemy's current visual position along the path
+    local a = e.path[math.max(1, e.pathIndex)]
+    local b = e.path[math.min(#e.path, e.pathIndex + 1)] or a
+    local ax = (a.x - 0.5) * Config.TILE_SIZE
+    local ay = (a.y - 0.5) * Config.TILE_SIZE
+    local bx = (b.x - 0.5) * Config.TILE_SIZE
+    local by = (b.y - 0.5) * Config.TILE_SIZE
+    local baseX = ax + (bx - ax) * (e.progress or 0)
+    local baseY = ay + (by - ay) * (e.progress or 0)
+    -- include current knockback offsets for better alignment
+    baseX = baseX + (e.kox or 0)
+    baseY = baseY + (e.koy or 0)
+    self.floaters[#self.floaters+1] = {
+        baseX = baseX + jx,
+        baseY = baseY + jy,
+        dirX = (hitDX or 0),
+        dirY = (hitDY or -1),
+        amp = 8, -- further reduced initial travel distance (pixels)
+        holdSec = 0.5, -- linger duration at peak
+        endFactor = 0.5, -- return only 35% back toward origin
+        text = (isCrit and (tostring(math.floor(amount + 0.5)) .. "!") or tostring(math.floor(amount + 0.5))),
+        isCrit = isCrit and true or false,
+        age = 0,
+        life = 0.5
+    }
 end
 
 function EnemySpawnManager:damageAll(amount)
@@ -110,10 +182,11 @@ function EnemySpawnManager:damageAll(amount)
 end
 
 function EnemySpawnManager:update(dt)
-    -- Handle spawning cadence
+    -- Handle spawning cadence (legacy debug spawner)
     self.timeSinceLastSpawn = self.timeSinceLastSpawn + dt
     if #self.enemies < Config.ENEMY.MAX_ACTIVE and self.timeSinceLastSpawn >= Config.ENEMY.SPAWN_INTERVAL then
-        self:spawnEnemy()
+        -- Commented out to avoid interfering with wave system; keep for manual 's' debug key
+        -- self:spawnEnemy()
         self.timeSinceLastSpawn = 0
     end
 
@@ -160,6 +233,12 @@ function EnemySpawnManager:update(dt)
             end
         end
     end
+    -- update floating damage numbers (age/fade only; position computed analytically on draw)
+    for i = #self.floaters, 1, -1 do
+        local f = self.floaters[i]
+        f.age = f.age + dt
+        if f.age >= f.life then table.remove(self.floaters, i) end
+    end
 end
 
 function EnemySpawnManager:draw(originX, originY, tileSize)
@@ -172,6 +251,10 @@ function EnemySpawnManager:draw(originX, originY, tileSize)
     end
     love.graphics.setColor(1, 1, 1, 1)
     for _, e in ipairs(self.enemies) do
+        -- Reset draw state to avoid leaked alpha/blend/shader from previous draws
+        love.graphics.setShader()
+        love.graphics.setBlendMode('alpha')
+        love.graphics.setColor(1, 1, 1, 1)
         local path = e.path
         local a = path[math.max(1, e.pathIndex)]
         local b = path[math.min(#path, e.pathIndex + 1)]
@@ -197,15 +280,21 @@ function EnemySpawnManager:draw(originX, originY, tileSize)
             local cx = drawX + (self.enemySprite:getWidth() * scaleX) / 2
             local cy = drawY + (self.enemySprite:getHeight() * scaleY) / 2
             love.graphics.draw(self.enemySprite, cx, cy, (e.krot or 0), scaleX, scaleY, self.enemySprite:getWidth()/2, self.enemySprite:getHeight()/2)
-            -- White flash overlay using Moonshine colorgradesimple (brighten to white)
+            -- White flash overlay using shader + strong bloom via moonshine glow
             if e.hitFlashTime and e.hitFlashTime > 0 then
-                local alpha = math.min(1, e.hitFlashTime / 0.12)
-                -- Prefer direct shader for reliability
-                self.whitenShader:send('amount', 0.85 * alpha + 0.15)
-                local prevShader = love.graphics.getShader()
-                love.graphics.setShader(self.whitenShader)
-                love.graphics.draw(self.enemySprite, cx, cy, (e.krot or 0), scaleX, scaleY, self.enemySprite:getWidth()/2, self.enemySprite:getHeight()/2)
-                love.graphics.setShader(prevShader)
+                local dur = Config.ENEMY.HIT_FLASH_DURATION or 0.12
+                local tnorm = math.min(1, e.hitFlashTime / math.max(0.0001, dur))
+                -- white flash amount ramps with remaining time
+                self.whitenShader:send('amount', 0.85 * tnorm + 0.15)
+                -- Draw additive white flash with bloom chain
+                self.hitGlow(function()
+                    love.graphics.setBlendMode('add')
+                    local prevShader = love.graphics.getShader()
+                    love.graphics.setShader(self.whitenShader)
+                    love.graphics.draw(self.enemySprite, cx, cy, (e.krot or 0), scaleX, scaleY, self.enemySprite:getWidth()/2, self.enemySprite:getHeight()/2)
+                    love.graphics.setShader(prevShader)
+                    love.graphics.setBlendMode('alpha')
+                end)
             end
 
             -- Mini HP bar when damaged
@@ -216,7 +305,7 @@ function EnemySpawnManager:draw(originX, originY, tileSize)
                 local percent = e.hp / e.maxHp
                 local barX = cx - (barWidth / 2)
                 local barY = (drawY - 2) + barCfg.OFFSET_Y
-                Theme.drawHealthBar(barX, barY, barWidth, barHeight, percent, barCfg.BG_COLOR, barCfg.FG_COLOR)
+                Theme.drawHealthBar(barX, barY, barWidth, barHeight, percent, barCfg.BG_COLOR, barCfg.FG_COLOR, barCfg.CORNER_RADIUS)
             end
         else
             love.graphics.setColor(1, 0.2, 0.2, 1)
@@ -224,6 +313,68 @@ function EnemySpawnManager:draw(originX, originY, tileSize)
             love.graphics.rectangle('fill', x + (tileSize - size)/2, y + (tileSize - size)/2, size, size)
             love.graphics.setColor(1, 1, 1, 1)
         end
+    end
+    -- draw floating damage numbers on top
+    for _, f in ipairs(self.floaters) do
+        local t = math.min(1, f.age / (f.life or 0.3))
+        -- along-direction motion with hold at peak
+        local life = (f.life or 0.3)
+        local holdFrac = 0
+        if (f.holdSec or 0) > 0 and life > 0 then
+            holdFrac = math.max(0, math.min(0.9, (f.holdSec or 0) / life))
+        end
+        local tPeakStart = 0.5 - holdFrac * 0.5
+        local tPeakEnd = 0.5 + holdFrac * 0.5
+        local alongFactor
+        if t <= tPeakStart then
+            local denom = (tPeakStart > 0 and tPeakStart or 1)
+            local a = t / denom
+            alongFactor = math.sin((math.pi * 0.5) * a) -- 0..1 forward ease
+        elseif t < tPeakEnd then
+            alongFactor = 1
+        else
+            local denom = (1 - tPeakEnd)
+            if denom <= 0 then
+                alongFactor = 0
+            else
+                local a = (t - tPeakEnd) / denom
+                local endF = (f.endFactor or 0.35)
+                -- ease from 1 down to endFactor (not all the way back)
+                alongFactor = 1 - (1 - endF) * math.sin((math.pi * 0.5) * a)
+            end
+        end
+        local along = (f.amp or 14) * alongFactor
+        local lift = 10 * t
+        local x = originX + (f.baseX or 0) + (f.dirX or 0) * along
+        local y = originY + (f.baseY or 0) + (f.dirY or 0) * along - lift
+        -- scale bounce for pop
+        local baseScale = f.isCrit and 1.15 or 1.0
+        local scale = baseScale + 0.08 * (1 - t) * math.sin(t * math.pi * 2)
+        -- keep full opacity until the last fraction, then fade quickly
+        local fadeStart = 0.75 -- start fade a bit earlier for a slightly longer fade time
+        local alpha
+        if t < fadeStart then
+            alpha = 1
+        else
+            alpha = 1 - (t - fadeStart) / (1 - fadeStart)
+        end
+        local txt = f.text
+        -- hard drop shadow behind text
+        local shadowOffset = 2
+        love.graphics.setColor(0, 0, 0, alpha)
+        love.graphics.setFont(Theme.FONTS.LARGE)
+        love.graphics.print(txt, x + shadowOffset, y + shadowOffset, 0, scale, scale)
+        -- bold effect via multi-pass prints (white on top)
+        if f.isCrit then
+            -- EED080
+            love.graphics.setColor(0.933, 0.816, 0.502, alpha)
+        else
+            love.graphics.setColor(1, 1, 1, alpha)
+        end
+        love.graphics.print(txt, x,   y, 0, scale, scale)
+        love.graphics.print(txt, x+1, y, 0, scale, scale)
+        love.graphics.print(txt, x, y+1, 0, scale, scale)
+        love.graphics.print(txt, x+1, y+1, 0, scale, scale)
     end
 end
 

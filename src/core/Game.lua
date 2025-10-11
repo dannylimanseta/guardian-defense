@@ -8,6 +8,7 @@ local Theme = require 'src/theme'
 local DeckManager = require 'src/systems/DeckManager'
 local HandUI = require 'src/ui/HandUI'
 -- local moonshine = require 'src/libs/moonshine'
+local WaveManager = require 'src/systems/WaveManager'
 
 local Game = {}
 
@@ -26,7 +27,8 @@ function Game:init()
     
     -- Set up Love2D window
     love.window.setTitle(Config.WINDOW_TITLE)
-    love.graphics.setDefaultFilter("nearest", "nearest") -- Pixel perfect scaling
+    -- Use nearest for sprites/canvas, but fonts are set to linear individually
+    love.graphics.setDefaultFilter("nearest", "nearest")
     
     -- Disable post-processing by default
     self.effect = nil
@@ -38,7 +40,8 @@ function Game:init()
     self.deck:startWave()
     self.handUI = HandUI:new(self.deck)
 
-    print("Guardian Defense initialized successfully!")
+    -- Initialize wave manager with current stage and spawn system
+    self.waveManager = WaveManager:new('level_1', self.gridMap.enemySpawnManager)
 end
 
 function Game:update(dt)
@@ -46,6 +49,10 @@ function Game:update(dt)
     self.gridMap:update(dt)
     if self.handUI and self.handUI.update then
         self.handUI:update(dt)
+    end
+    -- Update waves
+    if self.waveManager and self.waveManager.update then
+        self.waveManager:update(dt)
     end
     -- Decay screen move offsets
     if self.screenMoveX or self.screenMoveY then
@@ -62,24 +69,36 @@ function Game:draw()
     
     -- Render scene to logical canvas first
     ResolutionManager:startDraw()
+    -- Apply screen shake inside the canvas so the canvas stays aligned with letterbox
+    love.graphics.push()
+    love.graphics.translate(self.screenMoveX or 0, self.screenMoveY or 0)
     self.gridMap:draw()
-    -- Hand UI and minimal HUD on top of scene within logical canvas
+    love.graphics.pop()
+    -- Stop drawing to the world canvas
+    love.graphics.setCanvas()
+    
+    -- Present canvas to screen
+    -- Present world canvas with screen shake
+    love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.push()
+    love.graphics.translate(ResolutionManager.offsetX, ResolutionManager.offsetY)
+    love.graphics.scale(ResolutionManager.scale)
+    love.graphics.draw(ResolutionManager.canvas)
+    love.graphics.pop()
+    
+    -- Draw HUD/UI above the game (no shake), but scaled to logical resolution
+    love.graphics.push()
+    love.graphics.translate(ResolutionManager.offsetX, ResolutionManager.offsetY)
+    love.graphics.scale(ResolutionManager.scale)
     if self.handUI then
         self.handUI:draw()
     end
-    -- HUD overlay (optional)
     if Config.UI.SHOW_CORE_HEALTH then
         self:drawHUD()
     end
-    
-    -- Present canvas to screen
-    love.graphics.setCanvas()
-    -- Ensure no tint is applied to the canvas when drawing to screen
-    love.graphics.setColor(1, 1, 1, 1)
-    love.graphics.push()
-    love.graphics.translate(ResolutionManager.offsetX + (self.screenMoveX or 0), ResolutionManager.offsetY + (self.screenMoveY or 0))
-    love.graphics.scale(ResolutionManager.scale)
-    love.graphics.draw(ResolutionManager.canvas)
+    if self.gridMap and self.gridMap.drawInfoPanel then
+        self.gridMap:drawInfoPanel()
+    end
     love.graphics.pop()
 end
 
@@ -89,19 +108,14 @@ function Game:keypressed(key)
     elseif key == "f11" or key == "f" then
         -- Toggle fullscreen
         ResolutionManager:toggleFullscreen()
-    elseif key == "i" then
-        -- Print resolution info
-        local info = ResolutionManager:getScaleInfo()
-        print(string.format("Resolution Info:"))
-        print(string.format("  Screen: %dx%d (%.2f:1)", info.screenWidth, info.screenHeight, info.aspectRatio))
-        print(string.format("  Logical: %dx%d (%.2f:1)", info.logicalWidth, info.logicalHeight, info.logicalAspectRatio))
-        print(string.format("  Scale: %.2f", info.scale))
-        print(string.format("  Draw Area: %dx%d", info.drawWidth, info.drawHeight))
-        print(string.format("  Offset: (%d, %d)", info.offsetX, info.offsetY))
     elseif key == "p" then
         -- Toggle post-processing
         self.postFXEnabled = not self.postFXEnabled
-        print("PostFX enabled:", self.postFXEnabled)
+    elseif key == "space" then
+        -- Start next wave (supports overlap)
+        if self.waveManager and self.waveManager.startNextWave then
+            self.waveManager:startNextWave()
+        end
     end
     
     self.gridMap:keypressed(key)
@@ -133,7 +147,9 @@ function Game:mousemoved(x, y, dx, dy)
         end
         self.gridMap:setHoverFromPlacement(tile, eligible)
     else
+        -- Re-enable general hover computation for towers/tiles, but keep hover rect hidden
         self.gridMap:mousemoved(gameX, gameY, dx, dy)
+        self.gridMap.showHoverRect = false
     end
 end
 
@@ -144,31 +160,19 @@ function Game:mousereleased(x, y, button)
     if not info or not info.cardId or not info.cardIndex then return end
     -- Check energy before attempting to play
     local can, reason = self.deck:canPlayCard(info.cardId)
-    if not can then
-        if Config.GAME.DEBUG_MODE then
-            print('Cannot play card:', reason)
-        end
-        return
-    end
+    if not can then return end
     -- Determine target tile
     local tile = self.gridMap:getTileAtPosition(gameX, gameY)
-    if not tile then
-        if Config.GAME.DEBUG_MODE then print('Drop not on grid') end
-        return
-    end
+    if not tile then return end
     local def = self.deck:playCardFromHand(info.cardIndex)
-    if not def then
-        if Config.GAME.DEBUG_MODE then print('Play failed') end
-        return
-    end
+    if not def then return end
     local placed = false
     if def.type == 'place_tower' and def.payload and def.payload.tower == 'crossbow' then
-        placed = self.gridMap:placeTowerAt(tile.x, tile.y)
+        placed = self.gridMap:placeTowerAt(tile.x, tile.y, def.payload.tower, def.payload.level or 1)
     end
     if not placed then
         -- refund energy and card if placement invalid
         self.deck:refundLastPlayed(def.id)
-        if Config.GAME.DEBUG_MODE then print('Placement invalid, refunded') end
     end
 end
 

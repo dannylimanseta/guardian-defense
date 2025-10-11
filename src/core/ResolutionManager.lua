@@ -25,24 +25,24 @@ function ResolutionManager:init()
     self.drawHeight = self.logicalHeight * self.scale
     
     -- Calculate offsets for centering
-    self.offsetX = (self.screenWidth - self.drawWidth) / 2
-    self.offsetY = (self.screenHeight - self.drawHeight) / 2
+    self.offsetX = math.floor(((self.screenWidth - self.drawWidth) / 2) + 0.5)
+    self.offsetY = math.floor(((self.screenHeight - self.drawHeight) / 2) + 0.5)
     
     -- Set up canvas for rendering
     self.canvas = love.graphics.newCanvas(self.logicalWidth, self.logicalHeight)
+    if self.canvas.setFilter then self.canvas:setFilter('nearest', 'nearest') end
+    if self.canvas.setWrap then self.canvas:setWrap('clamp', 'clamp') end
     
     -- Fullscreen toggle state
     self.pendingFullscreenToggle = false
     
-    print(string.format("Resolution: %dx%d -> %dx%d (scale: %.2f)", 
-        self.screenWidth, self.screenHeight, 
-        self.logicalWidth, self.logicalHeight, self.scale))
+    -- no debug print
 end
 
 function ResolutionManager:startDraw()
     -- Set up canvas for rendering
     love.graphics.setCanvas(self.canvas)
-    love.graphics.clear()
+    love.graphics.clear(Config.COLORS.BACKGROUND)
 end
 
 function ResolutionManager:endDraw()
@@ -91,11 +91,10 @@ function ResolutionManager:resize(width, height)
     self.drawHeight = self.logicalHeight * self.scale
     
     self.offsetX = (self.screenWidth - self.drawWidth) / 2
-    self.offsetY = (self.screenHeight - self.drawHeight) / 2
+    self.offsetX = math.floor((self.offsetX) + 0.5)
+    self.offsetY = math.floor(((self.screenHeight - self.drawHeight) / 2) + 0.5)
     
-    print(string.format("Resolution updated: %dx%d -> %dx%d (scale: %.2f)", 
-        self.screenWidth, self.screenHeight, 
-        self.logicalWidth, self.logicalHeight, self.scale))
+    -- no debug print
 end
 
 function ResolutionManager:toggleFullscreen()
@@ -116,10 +115,7 @@ function ResolutionManager:update()
             love.window.setFullscreen(not fullscreen)
         end)
         
-        if not success then
-            print("Error toggling fullscreen:", err)
-            return
-        end
+        if not success then return end
         
         -- Update dimensions after fullscreen change
         self.screenWidth, self.screenHeight = love.graphics.getDimensions()
@@ -135,10 +131,7 @@ function ResolutionManager:update()
         self.offsetX = (self.screenWidth - self.drawWidth) / 2
         self.offsetY = (self.screenHeight - self.drawHeight) / 2
         
-        print(string.format("Fullscreen %s: %dx%d -> %dx%d (scale: %.2f)", 
-            not fullscreen and "enabled" or "disabled",
-            self.screenWidth, self.screenHeight, 
-            self.logicalWidth, self.logicalHeight, self.scale))
+        -- no debug print
     end
 end
 

@@ -29,6 +29,9 @@ Theme.COLORS = {
     WARNING = {0.9, 0.7, 0.1, 1},      -- Yellow
     ERROR = {0.9, 0.2, 0.2, 1},        -- Red
     
+    -- Accent (teal) used in card UI
+    ACCENT = {0.4039, 0.6745, 0.5922, 1}, -- #67AC97
+
     -- Background colors
     BACKGROUND_PRIMARY = Config.COLORS.BACKGROUND,
     BACKGROUND_SECONDARY = {0.15, 0.15, 0.2, 1},
@@ -36,11 +39,39 @@ Theme.COLORS = {
 }
 
 -- Typography
+local function loadFont(size)
+    local path = string.format('%s/%s', Config.FONT_PATH, 'BarlowCondensed-Regular.ttf')
+    local font
+    if love.filesystem.getInfo(path) then
+        font = love.graphics.newFont(path, size)
+    else
+        font = love.graphics.newFont(size)
+    end
+    if font and font.setFilter then font:setFilter('linear', 'linear') end
+    return font
+end
+
+local function loadFontBold(size)
+    local path = string.format('%s/%s', Config.FONT_PATH, 'BarlowCondensed-Bold.ttf')
+    local font
+    if love.filesystem.getInfo(path) then
+        font = love.graphics.newFont(path, size)
+    else
+        font = love.graphics.newFont(size)
+    end
+    if font and font.setFilter then font:setFilter('linear', 'linear') end
+    return font
+end
+
 Theme.FONTS = {
-    SMALL = love.graphics.newFont(12),
-    MEDIUM = love.graphics.newFont(16),
-    LARGE = love.graphics.newFont(24),
-    TITLE = love.graphics.newFont(32)
+    SMALL = loadFont(12),
+    MEDIUM = loadFont(16),
+    LARGE = loadFont(24),
+    TITLE = loadFont(32),
+    BOLD_SMALL = loadFontBold(12),
+    BOLD_MEDIUM = loadFontBold(16),
+    BOLD_LARGE = loadFontBold(24),
+    BOLD_TITLE = loadFontBold(32)
 }
 
 -- Component Styles
@@ -126,17 +157,48 @@ function Theme.drawText(text, x, y, font, color)
     love.graphics.print(text, x, y)
 end
 
+function Theme.drawTextCentered(text, cx, y, font, color)
+    font = font or Theme.FONTS.MEDIUM
+    color = color or Theme.COLORS.WHITE
+    love.graphics.setFont(font)
+    love.graphics.setColor(color)
+    local w = font:getWidth(text)
+    love.graphics.print(text, cx - w / 2, y)
+end
+
+function Theme.drawShadowTextCentered(text, cx, y, font, color, shadowColor, ox, oy)
+    font = font or Theme.FONTS.MEDIUM
+    color = color or Theme.COLORS.WHITE
+    shadowColor = shadowColor or {0,0,0,0.6}
+    ox = ox or 1
+    oy = oy or 1
+    love.graphics.setFont(font)
+    love.graphics.setColor(shadowColor)
+    local w = font:getWidth(text)
+    love.graphics.print(text, cx - w / 2 + ox, y + oy)
+    love.graphics.setColor(color)
+    love.graphics.print(text, cx - w / 2, y)
+end
+
 -- Minimal health bar utility
-function Theme.drawHealthBar(x, y, width, height, percent, bgColor, fgColor)
+function Theme.drawHealthBar(x, y, width, height, percent, bgColor, fgColor, cornerRadius)
     percent = math.max(0, math.min(1, percent or 1))
     -- Background
     love.graphics.setColor(bgColor or {0, 0, 0, 0.8})
-    love.graphics.rectangle('fill', x, y, width, height)
+    if cornerRadius and cornerRadius > 0 then
+        love.graphics.rectangle('fill', x, y, width, height, cornerRadius, cornerRadius)
+    else
+        love.graphics.rectangle('fill', x, y, width, height)
+    end
     -- Foreground
     local w = math.floor(width * percent)
     if w > 0 then
         love.graphics.setColor(fgColor or {0.6, 1, 0.3, 1})
-        love.graphics.rectangle('fill', x, y, w, height)
+        if cornerRadius and cornerRadius > 0 then
+            love.graphics.rectangle('fill', x, y, w, height, cornerRadius, cornerRadius)
+        else
+            love.graphics.rectangle('fill', x, y, w, height)
+        end
     end
 end
 

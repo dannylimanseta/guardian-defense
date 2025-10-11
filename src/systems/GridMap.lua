@@ -9,8 +9,10 @@ if type(MapLoader) ~= 'table' then
 end
 local EnemySpawnManager = require 'src/systems/EnemySpawnManager'
 local TowerManager = require 'src/systems/TowerManager'
+local TowerDefs = require 'src/data/towers'
 local ProjectileManager = require 'src/systems/ProjectileManager'
 local Theme = require 'src/theme'
+local Moonshine = require 'src/libs/moonshine'
 
 local GridMap = {}
 GridMap.__index = GridMap
@@ -47,10 +49,13 @@ function GridMap:init()
 
     -- Mouse interaction state
     self.hoveredTile = nil
+    self.showHoverRect = false
+	self.hoveredTower = nil
     self.selectedTile = nil
     self.rangeRotateDeg = 0
     self.rangeAlpha = 0
     self.rangeBounceT = 0
+    self.infoPanelAlpha = 0
 
     -- Enemy system
     self.enemySpawnManager = EnemySpawnManager:new(self.mapData)
@@ -58,9 +63,10 @@ function GridMap:init()
     -- Tower sprites (lazy-loaded on first draw)
     self.towerBaseSprite = nil
     self.towerCrossbowSprite = nil
-
-    print(string.format("Grid initialized: %dx%d tiles at (%d, %d)",
-        self.columns, self.rows, self.gridX, self.gridY))
+    -- glow effect for placement hover circle
+    self.hoverGlow = Moonshine(Config.LOGICAL_WIDTH, Config.LOGICAL_HEIGHT, Moonshine.effects.glow)
+    self.hoverGlow.glow.min_luma = 0.0
+    self.hoverGlow.glow.strength = 5
 end
 
 -- (update merged below with towers/projectiles logic)
@@ -129,11 +135,19 @@ function GridMap:draw()
 
     love.graphics.setColor(1, 1, 1, 1)
 
-    if self.hoveredTile then
-        love.graphics.setColor(Config.COLORS.HOVER_TILE)
+    if self.hoveredTile and self.showHoverRect then
         local tileX = self.gridX + (self.hoveredTile.x - 1) * self.tileSize
         local tileY = self.gridY + (self.hoveredTile.y - 1) * self.tileSize
-        love.graphics.rectangle("fill", tileX, tileY, self.tileSize, self.tileSize)
+        local cx = tileX + self.tileSize * 0.5
+        local cy = tileY + self.tileSize * 0.5
+        local r = self.tileSize * 0.07
+        -- draw the glow-blurred circle via moonshine glow chain
+        self.hoverGlow(function()
+            love.graphics.setBlendMode('add')
+            love.graphics.setColor(1, 1, 1, 1.0)
+            love.graphics.circle('fill', cx, cy, r)
+            love.graphics.setBlendMode('alpha')
+        end)
     end
     
     -- Draw selected tile
@@ -148,7 +162,8 @@ function GridMap:draw()
 		if tower then
 			local cx = self.gridX + (tower.x - 0.5) * self.tileSize
 			local cy = self.gridY + (tower.y - 0.5) * self.tileSize
-			local baseRadius = (Config.TOWER.RANGE_TILES or 0) * self.tileSize
+			local stats = TowerDefs.getStats(tower.towerId or 'crossbow', tower.level or 1)
+			local baseRadius = (stats.rangePx or (Config.TOWER.RANGE_TILES * self.tileSize))
 			local rcfg = Config.TOWER.RANGE_INDICATOR or {}
 			local bounceScale = rcfg.BOUNCE_SCALE or 0
 			local bounceDur = math.max(0.001, rcfg.BOUNCE_DURATION or 0.25)
@@ -190,9 +205,7 @@ function GridMap:mousepressed(x, y, button)
         if tile then
             self.selectedTile = tile
             -- Selection only; placement is gated by card play via Game:mousereleased
-            if Config.GAME.DEBUG_MODE then
-                print(string.format("Selected tile: (%d, %d)", tile.x, tile.y))
-            end
+            -- no debug print
         end
     end
 end
@@ -200,14 +213,22 @@ end
 function GridMap:mousemoved(x, y, dx, dy)
     local tile = self:getTileAtPosition(x, y)
     self.hoveredTile = tile
+    -- derive hovered tower if any
+    self.hoveredTower = nil
+    if tile then
+        local t = self.towerManager:getTowerAt(tile.x, tile.y)
+        if t then self.hoveredTower = t end
+    end
 end
 
 -- External hover control used during card dragging: show hover only when eligible
 function GridMap:setHoverFromPlacement(tile, eligible)
     if eligible then
         self.hoveredTile = tile
+        self.showHoverRect = true
     else
         self.hoveredTile = nil
+        self.showHoverRect = false
     end
 end
 
@@ -232,22 +253,13 @@ function GridMap:getTileAtPosition(x, y)
 end
 
 function GridMap:keypressed(key)
-    if key == "space" then
-        -- Clear selection
-        self.selectedTile = nil
-        print("Selection cleared")
-    elseif key == "r" then
+    if key == "r" then
         -- Reset grid
         self:init()
-        print("Grid reset")
     elseif key == "s" then
         -- Spawn one enemy immediately
         local ok = self.enemySpawnManager:spawnEnemy()
-        if ok then
-            print("Enemy spawned")
-        else
-            print("Enemy spawn failed (see debug log)")
-        end
+        -- no debug prints on spawn
     end
 end
 
@@ -268,13 +280,10 @@ end
 
 -- placement handled by TowerManager
 
-function GridMap:placeTowerAt(x, y)
+function GridMap:placeTowerAt(x, y, towerId, level)
     if not self:isBuildSpot(x, y) then return false end
     if self:isOccupied(x, y) then return false end
-    self.towerManager:placeTower(x, y)
-    if Config.GAME.DEBUG_MODE then
-        print(string.format("Tower placed at: (%d, %d)", x, y))
-    end
+    self.towerManager:placeTower(x, y, towerId, level)
     return true
 end
 
@@ -327,5 +336,52 @@ function GridMap:update(dt)
 end
 
 -- projectiles handled by ProjectileManager
+
+function GridMap:drawInfoPanel()
+    -- Tower Info Panel (top-left) when hovered or selected tower, drawn in screen space (no shake)
+    local infoTower = self.hoveredTower or (self.selectedTile and self.towerManager:getTowerAt(self.selectedTile.x, self.selectedTile.y)) or nil
+    if infoTower then
+        local pad = 12
+        local panelW = math.floor(320 * 0.7)
+        local x = pad
+        local y = pad
+        local titleFont = Theme.FONTS.LARGE
+        local labelFont = Theme.FONTS.MEDIUM
+        local valueFont = Theme.FONTS.MEDIUM
+        local stats = TowerDefs.getStats(infoTower.towerId or 'crossbow', infoTower.level or 1)
+        local titleH = titleFont:getHeight()
+        local levelH = labelFont:getHeight()
+        local lineH = valueFont:getHeight() + 6
+        local rows = 5
+        local panelH = pad + titleH + 6 + levelH + 8 + rows * lineH + pad
+        -- update fade alpha
+        self.infoPanelAlpha = math.min(1, (self.infoPanelAlpha or 0) + 6 * love.timer.getDelta())
+        love.graphics.setColor(0, 0, 0, 0.3 * (self.infoPanelAlpha or 1))
+        love.graphics.rectangle('fill', x, y, panelW, panelH)
+        local accent = {0.4039, 0.6745, 0.5922, 1}
+        local tx = x + pad
+        local ty = y + pad
+        Theme.drawText((stats.name or 'Tower'), tx, ty, titleFont, {1,1,1,(self.infoPanelAlpha or 1)})
+        ty = ty + titleH + 6
+        Theme.drawText(string.format('LEVEL %d', infoTower.level or 1), tx, ty, labelFont, {accent[1],accent[2],accent[3],(self.infoPanelAlpha or 1)})
+        ty = ty + levelH + 8
+        local vx = x + panelW - pad
+        local function row(label, value)
+            Theme.drawText(label, tx, ty, labelFont, {1,1,1,(self.infoPanelAlpha or 1)})
+            local w = valueFont:getWidth(value)
+            Theme.drawText(value, vx - w, ty, valueFont, {accent[1],accent[2],accent[3],(self.infoPanelAlpha or 1)})
+            ty = ty + lineH
+        end
+        row('Damage', string.format('%d-%d', stats.damageMin or 0, stats.damageMax or 0))
+        row('Crit Damage', string.format('%d-%d', stats.critDamageMin or 0, stats.critDamageMax or 0))
+        row('Crit Chance', string.format('%d%%', math.floor((stats.critChance or 0) * 100 + 0.5)))
+        row('Fire Rate', string.format('%.1fs', stats.fireCooldown or 0))
+        row('Range', tostring(stats.rangePx or (Config.TOWER.RANGE_TILES * self.tileSize)))
+    else
+        if self.infoPanelAlpha and self.infoPanelAlpha > 0 then
+            self.infoPanelAlpha = math.max(0, self.infoPanelAlpha - 6 * love.timer.getDelta())
+        end
+    end
+end
 
 return GridMap

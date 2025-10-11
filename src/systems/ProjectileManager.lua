@@ -72,7 +72,7 @@ function ProjectileManager:update(dt, gridX, gridY, gridWidth, gridHeight, tileS
             local dy = (eyLocal - ty)
             local len = math.max(0.001, math.sqrt(dx*dx + dy*dy))
             dx, dy = dx/len, dy/len
-            enemySpawnManager:damageEnemy(hitIndex, p.damage, dx, dy, 1)
+            enemySpawnManager:damageEnemy(hitIndex, p.damage, dx, dy, 1, p.crit)
             if onHitScreenMove then
                 local amp = Config.GAME.SCREEN_HIT_MOVE_AMP
                 onHitScreenMove(dx * amp, dy * amp)
