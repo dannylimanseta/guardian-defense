@@ -28,6 +28,19 @@ function T.burstAfter(dt, enemyId, count, every, spawnIndex, opts)
 	}
 end
 
+-- Relative-time burst: starts `dt` seconds after the previous event ends
+function T.burstAfterEnd(dt, enemyId, count, every, spawnIndex, opts)
+	return {
+		afterEnd = dt,
+		type = enemyId,
+		count = count,
+		every = every,
+		spawnIndex = spawnIndex,
+		jitter = opts and opts.jitter or nil,
+		modifiers = opts and opts.modifiers or nil
+	}
+end
+
 -- Stream helper: specify a duration and rate (enemies/sec); converts to a burst
 function T.streamAt(t, enemyId, duration, rate, spawnIndex, opts)
 	local count = math.max(0, math.floor((duration or 0) * (rate or 0)))
