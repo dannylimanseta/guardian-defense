@@ -48,9 +48,9 @@ function TowerManager:update(dt, tileSize, enemies, projectiles)
         -- spawn anim timer
         t.spawnT = math.min((t.spawnT or 0) + dt, (Config.TOWER.SPAWN_ANIM and Config.TOWER.SPAWN_ANIM.DURATION) or 0)
         t.cooldown = math.max(0, (t.cooldown or 0) - dt)
-        -- Acquire nearest target in range
+        -- Acquire target in range: prioritize closest to core (furthest along path)
         local stats = TowerDefs.getStats(t.towerId or 'crossbow', t.level or 1)
-        local best, bestDist2
+        local best, bestPriority
         for _, e in ipairs(enemies) do
             local a = e.path[math.max(1, e.pathIndex)]
             local b = e.path[math.min(#e.path, e.pathIndex + 1)] or a
@@ -67,9 +67,15 @@ function TowerManager:update(dt, tileSize, enemies, projectiles)
             local dist2 = dx*dx + dy*dy
             local maxRange = (stats.rangePx or (Config.TOWER.RANGE_TILES * tileSize))
             if dist2 <= maxRange*maxRange then
-                if not bestDist2 or dist2 < bestDist2 then
+                -- Compute fraction of path completed toward core (0..1)
+                local pathLen = #e.path or 1
+                local totalSegments = math.max(1, pathLen - 1)
+                local currentProgress = math.max(0, (e.pathIndex - 1) + (e.progress or 0))
+                local frac = math.max(0, math.min(1, currentProgress / totalSegments))
+                -- Higher frac => closer to core
+                if bestPriority == nil or frac > bestPriority then
                     best = { ex = ex, ey = ey, enemy = e }
-                    bestDist2 = dist2
+                    bestPriority = frac
                 end
             end
         end
