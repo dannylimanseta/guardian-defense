@@ -128,7 +128,15 @@ local function loadCardArtForId(cardId)
 	if tostring(cardId):find('crossbow', 1, true) then
 		artName = 'card_crossbow.png'
 	end
-	if not artName then
+	-- Fire tower card art mapping
+	if not artName and tostring(cardId):find('fire', 1, true) then
+		artName = 'card_fire.png'
+	end
+    -- Energy Shield art (id or alias)
+    if not artName and (tostring(cardId):find('energy_shield', 1, true) or tostring(cardId):find('energy_sheild', 1, true)) then
+        artName = 'card_energy_shield.png'
+    end
+    if not artName then
 		cardArtCache[cardId] = false
 		return nil
 	end
@@ -406,22 +414,23 @@ end
 
 function HandUI:mousemoved(x, y, dx, dy)
 	self.mouseX, self.mouseY = x, y
-	if self.drag.active then
+    if self.drag.active then
         self.drag.mx = x
         self.drag.my = y
-        -- determine target side based on relative x position
-        local targetSide = (x > (self.drag.anchorX ~= 0 and self.drag.anchorX or self.drag.startX)) and -1 or 1
-        if targetSide ~= self.arrowState.side then
-            -- start flip tween
-            self.arrowState.side = targetSide
-            self.arrowState.tweenT = 0
+        local def = self.deck:getCardDef(self.drag.cardId)
+        local isTargeting = not def or (def.requiresTarget ~= false)
+        if isTargeting then
+            -- determine target side based on relative x position
+            local targetSide = (x > (self.drag.anchorX ~= 0 and self.drag.anchorX or self.drag.startX)) and -1 or 1
+            if targetSide ~= self.arrowState.side then
+                -- start flip tween
+                self.arrowState.side = targetSide
+                self.arrowState.tweenT = 0
+            end
         end
         return true
     end
 	-- update hover when not dragging (top-most hit wins)
-    local hand = self.deck:getHand()
-    local n = #hand
-    local order = getDrawOrder(n, true)
     local hand = self.deck:getHand()
     local n = #hand
     local order = getDrawOrder(n, true)
@@ -447,6 +456,24 @@ end
 function HandUI:mousereleased(x, y, button)
     if button ~= 1 then return false end
     if not self.drag.active then return false end
+    local def = self.deck:getCardDef(self.drag.cardId)
+    local isTargeting = not def or (def.requiresTarget ~= false)
+    -- enforce threshold: for non-targeting, only return play info if above clamp
+    if not isTargeting then
+        local clampY
+        if Config.DECK.DRAG_CLAMP_Y_FRAC and type(Config.DECK.DRAG_CLAMP_Y_FRAC) == 'number' then
+            clampY = (Config.DECK.DRAG_CLAMP_Y_FRAC) * (Config.LOGICAL_HEIGHT)
+        else
+            clampY = Config.DECK.DRAG_CLAMP_Y or (Config.LOGICAL_HEIGHT - Config.DECK.CARD_HEIGHT - Config.DECK.HAND_MARGIN - 60)
+        end
+        if (self.drag.my or y) < clampY then
+            -- allowed: above threshold
+        else
+            -- below threshold: cancel
+            self.drag.active = false
+            return false
+        end
+    end
     local info = {
         played = false,
         cardId = self.drag.cardId,
@@ -642,7 +669,12 @@ function HandUI:draw()
 			local scale = Config.DECK.CARD_TEMPLATE_SCALE or 0.7
 			local drawX = -cw2 + (cw - iw * scale) / 2
 			local drawY = -ch2 + (ch - ih * scale) / 2
+			local def = self.deck:getCardDef(id)
+			local isTargeting = not def or (def.requiresTarget ~= false)
+			local useGlow = (not isTargeting) and (self.drag.locked == true)
+			-- Always draw the base card template first
 			love.graphics.draw(self.cardTemplate, drawX, drawY, 0, scale, scale)
+			-- No glow overlay (moonshine removed per request)
 		else
 			love.graphics.setColor(0.15, 0.15, 0.2, 0.95)
 			love.graphics.rectangle('fill', -cw2, -ch2, cw, ch, 6, 6)
@@ -663,104 +695,109 @@ function HandUI:draw()
 		love.graphics.pop()
 	end
 
-	-- Debug hit overlay removed per request
+    -- Debug hit overlay removed per request
 
-    -- Drag arrow when active
+    -- Drag arrow when active (only for targeting cards)
     if self.drag.active then
-        local arrow = Config.DECK.ARROW or {}
-		local color = arrow.COLOR or {1,1,1,0.85}
-		local width = arrow.WIDTH or 3
-		local head = arrow.HEAD_SIZE or 10
-		local curveK = arrow.CURVE_STRENGTH or 0.2
-		local ax = self.drag.anchorX ~= 0 and self.drag.anchorX or self.drag.startX
-		local ay = self.drag.anchorY ~= 0 and self.drag.anchorY or self.drag.startY
-		-- raise the start point higher on the card (stronger by default)
-		local ch = Config.DECK.CARD_HEIGHT or 140
-		local startRaise = arrow.START_RAISE_PIXELS or math.floor(ch * 0.6)
-		ay = ay - startRaise
-        local bx = self.drag.mx
-        local by = self.drag.my
+        local def = self.deck:getCardDef((self.drag and self.drag.cardId))
+        local isTargeting = not def or (def.requiresTarget ~= false)
+        if isTargeting then
+            local arrow = Config.DECK.ARROW or {}
+            local color = arrow.COLOR or {1,1,1,0.85}
+            local width = arrow.WIDTH or 3
+            local head = arrow.HEAD_SIZE or 10
+            local curveK = arrow.CURVE_STRENGTH or 0.2
+            local ax = self.drag.anchorX ~= 0 and self.drag.anchorX or self.drag.startX
+            local ay = self.drag.anchorY ~= 0 and self.drag.anchorY or self.drag.startY
+            -- raise the start point higher on the card (stronger by default)
+            local ch = Config.DECK.CARD_HEIGHT or 140
+            local startRaise = arrow.START_RAISE_PIXELS or math.floor(ch * 0.6)
+            ay = ay - startRaise
+            local bx = self.drag.mx
+            local by = self.drag.my
 
-        -- Quadratic Bezier from A to B with control offset to create an upward bow
-        local dx = bx - ax
-        local dy = by - ay
-        local dist = math.sqrt(dx*dx + dy*dy)
-        local nx = dx / (dist > 0 and dist or 1)
-        local ny = dy / (dist > 0 and dist or 1)
-        -- perpendicular vector for curvature
-        local px = -ny
-        local py = nx
-        -- Flip curvature side with tweening
-        -- Compute current tweened sign between previous and target side
-        local targetSign = ((bx > ax) and -1 or 1)
-        local t = math.min(1, self.arrowState.tweenT or 1)
-        -- ease function (smoothstep)
-        local u = t * t * (3 - 2 * t)
-        local sign = ((self.arrowState.side == -1) and (-1) or 1)
-        if self.arrowState.tweenT and self.arrowState.tweenT < 1 then
-            -- blend from -sign to sign
-            local from = -sign
-            local to = sign
-            local blend = from * (1 - u) + to * u
-            sign = blend
+            -- Quadratic Bezier from A to B with control offset to create an upward bow
+            local dx = bx - ax
+            local dy = by - ay
+            local dist = math.sqrt(dx*dx + dy*dy)
+            local nx = dx / (dist > 0 and dist or 1)
+            local ny = dy / (dist > 0 and dist or 1)
+            -- perpendicular vector for curvature
+            local px = -ny
+            local py = nx
+            -- Flip curvature side with tweening
+            -- Compute current tweened sign between previous and target side
+            local targetSign = ((bx > ax) and -1 or 1)
+            local t = math.min(1, self.arrowState.tweenT or 1)
+            -- ease function (smoothstep)
+            local u = t * t * (3 - 2 * t)
+            local sign = ((self.arrowState.side == -1) and (-1) or 1)
+            if self.arrowState.tweenT and self.arrowState.tweenT < 1 then
+                -- blend from -sign to sign
+                local from = -sign
+                local to = sign
+                local blend = from * (1 - u) + to * u
+                sign = blend
+            end
+
+            -- First control: earlier along the path with smaller offset (flatter start)
+            local cx = ax + dx * 0.4 + px * (dist * curveK * 0.6 * sign)
+            local cy = ay + dy * 0.4 + py * (dist * curveK * 0.6 * sign)
+            -- Second control: very close to end with a strong offset (more end-weighted arc)
+            local c2x = ax + dx * 0.92 + px * (dist * curveK * 2.2 * sign)
+            local c2y = ay + dy * 0.92 + py * (dist * curveK * 2.2 * sign)
+
+            -- Render a smooth quadratic Bezier curve (A -> control -> B) with tapered width and color/alpha gradient
+            -- Draw as filled quads per segment to avoid visible seams between segments
+            local segments = 48
+            local widthStart = (arrow.WIDTH_START or (width * 4))
+            local widthEnd = (arrow.WIDTH_END or (width * 0.8))
+            -- reverse gradient: start at #405F7C, end at #67AC97
+            local startColor = arrow.START_COLOR or {0.251, 0.3725, 0.4863} -- #405F7C
+            local endColor = arrow.END_COLOR or {0.4039, 0.6745, 0.5922} -- #67AC97
+            local startAlpha = 0.0
+            local endAlpha = (color[4] or 0.85)
+
+            local function cubicPoint(t)
+                local omt = 1 - t
+                local omt2 = omt * omt
+                local t2 = t * t
+                local x = omt2*omt*ax + 3*omt2*t*cx + 3*omt*t2*c2x + t2*t*bx
+                local y = omt2*omt*ay + 3*omt2*t*cy + 3*omt*t2*c2y + t2*t*by
+                -- derivative for tangent
+                local dxdt = 3*omt2*(cx - ax) + 6*omt*t*(c2x - cx) + 3*t2*(bx - c2x)
+                local dydt = 3*omt2*(cy - ay) + 6*omt*t*(c2y - cy) + 3*t2*(by - c2y)
+                local len = math.sqrt(dxdt*dxdt + dydt*dydt)
+                if len < 1e-5 then len = 1 end
+                local nxp = -dydt / len
+                local nyp = dxdt / len
+                return x, y, nxp, nyp
+            end
+
+            local prevX, prevY, prevNX, prevNY = cubicPoint(0)
+            local prevW = widthStart
+            for i = 1, segments do
+                local tt = i / segments
+                local curX, curY, curNX, curNY = cubicPoint(tt)
+                local wseg = widthStart + (widthEnd - widthStart) * tt
+                local r = startColor[1] + (endColor[1] - startColor[1]) * tt
+                local g = startColor[2] + (endColor[2] - startColor[2]) * tt
+                local b = startColor[3] + (endColor[3] - startColor[3]) * tt
+                local a = startAlpha + (endAlpha - startAlpha) * tt
+                love.graphics.setColor(r, g, b, a)
+                -- quad corners for previous and current sample
+                local p1x = prevX - prevNX * (prevW * 0.5)
+                local p1y = prevY - prevNY * (prevW * 0.5)
+                local p2x = prevX + prevNX * (prevW * 0.5)
+                local p2y = prevY + prevNY * (prevW * 0.5)
+                local p3x = curX  + curNX  * (wseg * 0.5)
+                local p3y = curY  + curNY  * (wseg * 0.5)
+                local p4x = curX  - curNX  * (wseg * 0.5)
+                local p4y = curY  - curNY  * (wseg * 0.5)
+                love.graphics.polygon('fill', p1x, p1y, p2x, p2y, p3x, p3y, p4x, p4y)
+                prevX, prevY, prevNX, prevNY, prevW = curX, curY, curNX, curNY, wseg
+            end
         end
-        -- First control: earlier along the path with smaller offset (flatter start)
-        local cx = ax + dx * 0.4 + px * (dist * curveK * 0.6 * sign)
-        local cy = ay + dy * 0.4 + py * (dist * curveK * 0.6 * sign)
-        -- Second control: very close to end with a strong offset (more end-weighted arc)
-        local c2x = ax + dx * 0.92 + px * (dist * curveK * 2.2 * sign)
-        local c2y = ay + dy * 0.92 + py * (dist * curveK * 2.2 * sign)
-
-		-- Render a smooth quadratic Bezier curve (A -> control -> B) with tapered width and color/alpha gradient
-		-- Draw as filled quads per segment to avoid visible seams between segments
-        local segments = 48
-		local widthStart = (arrow.WIDTH_START or (width * 4))
-		local widthEnd = (arrow.WIDTH_END or (width * 0.8))
-		-- reverse gradient: start at #405F7C, end at #67AC97
-		local startColor = arrow.START_COLOR or {0.251, 0.3725, 0.4863} -- #405F7C
-		local endColor = arrow.END_COLOR or {0.4039, 0.6745, 0.5922} -- #67AC97
-		local startAlpha = 0.0
-		local endAlpha = (color[4] or 0.85)
-
-        local function cubicPoint(t)
-            local omt = 1 - t
-            local omt2 = omt * omt
-            local t2 = t * t
-            local x = omt2*omt*ax + 3*omt2*t*cx + 3*omt*t2*c2x + t2*t*bx
-            local y = omt2*omt*ay + 3*omt2*t*cy + 3*omt*t2*c2y + t2*t*by
-            -- derivative for tangent
-            local dxdt = 3*omt2*(cx - ax) + 6*omt*t*(c2x - cx) + 3*t2*(bx - c2x)
-            local dydt = 3*omt2*(cy - ay) + 6*omt*t*(c2y - cy) + 3*t2*(by - c2y)
-            local len = math.sqrt(dxdt*dxdt + dydt*dydt)
-            if len < 1e-5 then len = 1 end
-            local nxp = -dydt / len
-            local nyp = dxdt / len
-            return x, y, nxp, nyp
-        end
-
-        local prevX, prevY, prevNX, prevNY = cubicPoint(0)
-		local prevW = widthStart
-		for i = 1, segments do
-			local tt = i / segments
-            local curX, curY, curNX, curNY = cubicPoint(tt)
-			local wseg = widthStart + (widthEnd - widthStart) * tt
-			local r = startColor[1] + (endColor[1] - startColor[1]) * tt
-			local g = startColor[2] + (endColor[2] - startColor[2]) * tt
-			local b = startColor[3] + (endColor[3] - startColor[3]) * tt
-			local a = startAlpha + (endAlpha - startAlpha) * tt
-			love.graphics.setColor(r, g, b, a)
-			-- quad corners for previous and current sample
-			local p1x = prevX - prevNX * (prevW * 0.5)
-			local p1y = prevY - prevNY * (prevW * 0.5)
-			local p2x = prevX + prevNX * (prevW * 0.5)
-			local p2y = prevY + prevNY * (prevW * 0.5)
-			local p3x = curX  + curNX  * (wseg * 0.5)
-			local p3y = curY  + curNY  * (wseg * 0.5)
-			local p4x = curX  - curNX  * (wseg * 0.5)
-			local p4y = curY  - curNY  * (wseg * 0.5)
-			love.graphics.polygon('fill', p1x, p1y, p2x, p2y, p3x, p3y, p4x, p4y)
-			prevX, prevY, prevNX, prevNY, prevW = curX, curY, curNX, curNY, wseg
-		end
     end
 
     -- draw play-out animations on very top
@@ -830,6 +867,7 @@ function HandUI:draw()
 end
 
 function HandUI:update(dt)
+    self.time = (self.time or 0) + dt
     -- advance flip tween if active
     if self.arrowState and self.arrowState.tweenT and self.arrowState.tweenT < 1 then
         local dur = self.arrowState.tweenDur or 0.1

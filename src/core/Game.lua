@@ -142,7 +142,6 @@ function Game:mousemoved(x, y, dx, dy)
         local tile = self.gridMap:getTileAtPosition(gameX, gameY)
         local eligible = false
         if tile then
-            -- For now, only crossbow tower placement is supported
             -- Eligibility: must be build spot and not occupied
             eligible = self.gridMap:isBuildSpot(tile.x, tile.y) and (not self.gridMap:isOccupied(tile.x, tile.y))
         end
@@ -162,14 +161,28 @@ function Game:mousereleased(x, y, button)
     -- Check energy before attempting to play
     local can, reason = self.deck:canPlayCard(info.cardId)
     if not can then return end
-    -- Determine target tile
-    local tile = self.gridMap:getTileAtPosition(gameX, gameY)
-    if not tile then return end
+    -- Determine card definition and play it (energy deducted here)
     local def = self.deck:playCardFromHand(info.cardIndex)
     if not def then return end
     local placed = false
-    if def.type == 'place_tower' and def.payload and def.payload.tower == 'crossbow' then
-        placed = self.gridMap:placeTowerAt(tile.x, tile.y, def.payload.tower, def.payload.level or 1)
+    local requiresTarget = (def.requiresTarget ~= false)
+    if requiresTarget then
+        if def.type == 'place_tower' and def.payload and def.payload.tower then
+            local tile = self.gridMap:getTileAtPosition(gameX, gameY)
+            if tile then
+                placed = self.gridMap:placeTowerAt(tile.x, tile.y, def.payload.tower, def.payload.level or 1)
+            else
+                placed = false
+            end
+        end
+    else
+        -- Non-targeting: enforce drag-up threshold (already locked in HandUI)
+        if def.type == 'apply_core_shield' and def.payload and def.payload.shieldHp then
+            if self.gridMap and self.gridMap.enemySpawnManager and self.gridMap.enemySpawnManager.addCoreShield then
+                self.gridMap.enemySpawnManager:addCoreShield(def.payload.shieldHp)
+                placed = true
+            end
+        end
     end
     if not placed then
         -- refund energy and card if placement invalid
@@ -193,11 +206,21 @@ function Game:drawHUD()
     Theme.drawPanel(x, y, panelWidth, panelHeight)
 
     local coreHealth = 0
+    local shield = 0
     if self.gridMap and self.gridMap.enemySpawnManager and self.gridMap.enemySpawnManager.getCoreHealth then
         coreHealth = self.gridMap.enemySpawnManager:getCoreHealth()
+        if self.gridMap.enemySpawnManager.getCoreShield then
+            shield = self.gridMap.enemySpawnManager:getCoreShield()
+        end
     end
     local maxHealth = Config.GAME.CORE_HEALTH
-    local text = string.format("Core: %d/%d", coreHealth, maxHealth)
+    local label = "Vigil Core"
+    local text
+    if (shield or 0) > 0 then
+        text = string.format("%s: %d/%d  [Shield %d]", label, coreHealth, maxHealth, shield)
+    else
+        text = string.format("%s: %d/%d", label, coreHealth, maxHealth)
+    end
     Theme.drawText(text, x + padding, y + padding, Theme.FONTS.MEDIUM, Theme.COLORS.WHITE)
 end
 

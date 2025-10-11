@@ -14,7 +14,7 @@ return {
 				T.burstAt(0, 'enemy_1', 3, 0.5, 1),
 				T.burstAfter(2, 'enemy_1', 4, 0.25, 1),
 				-- fan from second spawn concurrently
-				T.burstAt(1.5, 'enemy_1', 3, 0.4, 2),
+					T.burstAt(1.5, 'enemy_1', 3, 0.4, 2)
 			}
 		},
 		{
@@ -23,7 +23,22 @@ return {
 			schedule = {
 				T.burstAt(0, 'enemy_1', 3, 0.35, 1),
 				-- start 1.5s after the previous event finishes
-				T.burstAfterEnd(1.5, 'enemy_1', 5, 0.2, 2)
+				T.burstAfterEnd(1.5, 'enemy_1', 5, 0.2, 2),
+				-- occasional brute
+				T.burstAfter(1.0, 'enemy_2', 2, 0.8, 1)
+			}
+		},
+		-- New Wave 3 focusing on enemy_2
+		{
+			name = 'Brute Push',
+			reward = 80,
+			schedule = {
+				-- opening half: enemy_1 from both spawns
+				T.burstAt(0, 'enemy_1', 6, 0.4, 1),
+				T.burstAt(0, 'enemy_1', 6, 0.4, 2),
+				-- staggered later half: enemy_2 starts slightly later
+				T.burstAfter(1.5, 'enemy_2', 6, 0.5, 1),
+				T.burstAfter(0.0, 'enemy_2', 6, 0.5, 2)
 			}
 		}
 	}

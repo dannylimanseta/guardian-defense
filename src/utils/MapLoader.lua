@@ -212,6 +212,31 @@ local function extractMapDimensions(content)
     return tonumber(width), tonumber(height), tonumber(tileWidth), tonumber(tileHeight)
 end
 
+-- Parse TMX object layers to find a named core object; returns grid coordinates (x, y) or nil
+local function parseCoreObject(content, tileWidth, tileHeight)
+    -- Look for a self-closing object tag with name="core" and x/y/width/height attributes
+    local ox, oy, ow, oh = content:match('<object[^>]-name="core"[^>]-x="([%d%.%-]+)"[^>]-y="([%d%.%-]+)"[^>]-width="([%d%.%-]+)"[^>]-height="([%d%.%-]+)"[^>]*/>')
+    if not ox or not oy then
+        -- Fallback: handle non-self-closing object tag variants where attributes are still on the opening tag
+        ox, oy, ow, oh = content:match('<object[^>]-name="core"[^>]-x="([%d%.%-]+)"[^>]-y="([%d%.%-]+)"[^>]-width="([%d%.%-]+)"[^>]-height="([%d%.%-]+)"[^>]*>')
+    end
+    if ox and oy then
+        local px = tonumber(ox)
+        local py = tonumber(oy)
+        local pw = ow and tonumber(ow) or nil
+        local ph = oh and tonumber(oh) or nil
+        if px and py and tileWidth and tileHeight and tileWidth > 0 and tileHeight > 0 then
+            -- Use object center for grid mapping to match drawn tile centering
+            local cx_px = px + (pw or tileWidth) / 2
+            local cy_px = py + (ph or tileHeight) / 2
+            local gridX = math.floor(cx_px / tileWidth) + 1
+            local gridY = math.floor(cy_px / tileHeight) + 1
+            return gridX, gridY, px, py, pw, ph, cx_px, cy_px
+        end
+    end
+    return nil, nil, nil, nil, nil, nil, nil, nil
+end
+
 function MapLoader:load(levelName)
     local relativePath = string.format('%s/%s.tmx', Config.LEVELS_PATH, levelName)
     if not love.filesystem.getInfo(relativePath) then
@@ -259,6 +284,14 @@ function MapLoader:load(levelName)
             elseif tile.type == 'build' then
                 specialTiles.build_spots[#specialTiles.build_spots + 1] = {x = tile.x, y = tile.y}
             end
+        end
+    end
+
+    -- Prefer TMX object-layer defined core if present (overrides tile-based core detection)
+    do
+        local cx, cy, px, py, pw, ph, pcx, pcy = parseCoreObject(fileContents, tileWidth, tileHeight)
+        if cx and cy then
+            specialTiles.core = { x = cx, y = cy, px = px, py = py, pw = pw, ph = ph, pcx = pcx, pcy = pcy }
         end
     end
 

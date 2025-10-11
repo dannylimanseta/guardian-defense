@@ -95,19 +95,23 @@ function GridMap:draw()
                         local tileX = self.gridX + (tile.x - 1) * self.tileSize
                         local tileY = self.gridY + (tile.y - 1) * self.tileSize
 
-                        if isSpecial then
+                        if isSpecial and tile.type ~= "core" then
                             tileY = tileY - 2 * self.tileSize
                         end
 
                         local scaleX = self.tileSize / (tile.width or self.sourceTileWidth)
                         local scaleY = self.tileSize / (tile.height or self.sourceTileHeight)
                         
-                        -- Center the heart tile in its grid cell and shift down by 1 grid
+                        -- Center the heart tile in its grid cell (no manual grid shift)
                         if tile.type == "core" then
+                            -- If a TMX core object exists, skip drawing the tile-based core to follow TMX object exactly
+                            if self.specialTiles and self.specialTiles.core and self.specialTiles.core.px then
+                                goto skip_tile_draw
+                            end
                             local offsetX = (self.tileSize - sprite:getWidth() * scaleX) / 2
                             local offsetY = (self.tileSize - sprite:getHeight() * scaleY) / 2
                             tileX = tileX + offsetX
-                            tileY = tileY + offsetY + self.tileSize
+                            tileY = tileY + offsetY
                         end
                         
                         -- Support flipped tiles from TMX
@@ -116,8 +120,34 @@ function GridMap:draw()
                         local ox = (tile.flipX and sprite:getWidth()) or 0
                         local oy = (tile.flipY and sprite:getHeight()) or 0
                         love.graphics.draw(sprite, tileX + (tile.flipX and sprite:getWidth() * scaleX or 0), tileY + (tile.flipY and sprite:getHeight() * scaleY or 0), 0, sx, sy)
+                        ::skip_tile_draw::
                     end
                 end
+            end
+        end
+
+        -- Draw core sprite from TMX object coordinates to follow TMX exactly (after special tiles pass)
+        if pass == 3 and self.specialTiles and self.specialTiles.core and self.specialTiles.core.px then
+            -- lazy-load core sprite from tileset
+            self.coreSprite = self.coreSprite or (function()
+                local p = string.format('%s/%s', Config.TILESET_PATH, 'heart_1.png')
+                if love.filesystem.getInfo(p) then
+                    local img = love.graphics.newImage(p)
+                    img:setFilter('nearest', 'nearest')
+                    return img
+                end
+                return nil
+            end)()
+            if self.coreSprite then
+                local px = self.specialTiles.core.px or 0
+                local py = self.specialTiles.core.py or 0
+                local pcx = self.specialTiles.core.pcx or (px + self.coreSprite:getWidth() / 2)
+                local pcy = self.specialTiles.core.pcy or (py + self.coreSprite:getHeight() / 2)
+                -- Draw at native sprite size, centered on the TMX object's center
+                local drawX = self.gridX + pcx - self.coreSprite:getWidth() / 2
+                local drawY = self.gridY + pcy - self.coreSprite:getHeight() / 2
+                love.graphics.setColor(1,1,1,1)
+                love.graphics.draw(self.coreSprite, drawX, drawY)
             end
         end
         
@@ -125,6 +155,34 @@ function GridMap:draw()
         if pass == 4 then
             self.towerManager:draw(self.gridX, self.gridY, self.tileSize)
             self.enemySpawnManager:draw(self.gridX, self.gridY, self.tileSize)
+            -- Draw minimal core HP bar above the core (use TMX object center if available)
+            if self.specialTiles and self.specialTiles.core then
+                local coreX, coreY
+                if self.specialTiles.core.pcx and self.specialTiles.core.pcy then
+                    coreX = self.gridX + self.specialTiles.core.pcx
+                    coreY = self.gridY + self.specialTiles.core.pcy
+                else
+                    local cx, cy = self.specialTiles.core.x, self.specialTiles.core.y
+                    coreX = self.gridX + (cx - 0.5) * self.tileSize
+                    coreY = self.gridY + (cy - 0.5) * self.tileSize
+                end
+                local barCfg = Config.CORE_HP_BAR or { WIDTH = 36, HEIGHT = 4, OFFSET_Y = -50, BG_COLOR = {1,1,1,0.2}, FG_COLOR = {1,1,1,1}, CORNER_RADIUS = 2 }
+                local coreHealth = 0
+                if self.enemySpawnManager and self.enemySpawnManager.getCoreHealth then
+                    coreHealth = self.enemySpawnManager:getCoreHealth()
+                end
+                local maxHealth = Config.GAME.CORE_HEALTH or 5
+                if maxHealth and maxHealth > 0 then
+                    local percent = math.max(0, math.min(1, coreHealth / maxHealth))
+                    local barW = barCfg.WIDTH or 36
+                    local barH = barCfg.HEIGHT or 4
+                    local barX = coreX - barW / 2
+                    local barY = coreY + (barCfg.OFFSET_Y or -50)
+                    local radius = barCfg.CORNER_RADIUS or 2
+                    Theme.drawHealthBar(barX, barY, barW, barH, percent, barCfg.BG_COLOR, barCfg.FG_COLOR, radius)
+                    love.graphics.setColor(1,1,1,1)
+                end
+            end
         end
 
         -- Draw projectiles on top in pass 5
@@ -294,7 +352,7 @@ function GridMap:update(dt)
     -- Update towers (targeting and firing)
     local projectiles = self.projectileManager:get()
     local enemies = self.enemySpawnManager:getEnemies()
-    self.towerManager:update(dt, self.tileSize, enemies, projectiles)
+    self.towerManager:update(dt, self.tileSize, enemies, projectiles, self.enemySpawnManager)
 
     -- Update projectiles
     self.projectileManager:update(
@@ -326,10 +384,11 @@ function GridMap:update(dt)
         self.rangeAlpha = math.max(0, self.rangeAlpha - fadeOut * dt)
     end
 
-    -- Bounce timer when becoming visible
-    if targetAlpha > 0 and self.rangeAlpha == 0 then
+    -- Reset bounce when visibility toggles off->on (avoid reliance on exact alpha==0)
+    if targetAlpha > 0 and ((self.prevRangeTargetAlpha or 0) == 0) then
         self.rangeBounceT = 0
     end
+    self.prevRangeTargetAlpha = targetAlpha
     if self.rangeAlpha > 0 then
         self.rangeBounceT = (self.rangeBounceT or 0) + dt
     end
@@ -372,11 +431,19 @@ function GridMap:drawInfoPanel()
             Theme.drawText(value, vx - w, ty, valueFont, {accent[1],accent[2],accent[3],(self.infoPanelAlpha or 1)})
             ty = ty + lineH
         end
-        row('Damage', string.format('%d-%d', stats.damageMin or 0, stats.damageMax or 0))
-        row('Crit Damage', string.format('%d-%d', stats.critDamageMin or 0, stats.critDamageMax or 0))
-        row('Crit Chance', string.format('%d%%', math.floor((stats.critChance or 0) * 100 + 0.5)))
-        row('Fire Rate', string.format('%.1fs', stats.fireCooldown or 0))
-        row('Range', tostring(stats.rangePx or (Config.TOWER.RANGE_TILES * self.tileSize)))
+        if (infoTower.towerId or 'crossbow') == 'fire' then
+            row('Fire Rate', string.format('%.2fs', stats.fireCooldown or 0))
+            row('Range', tostring(stats.rangePx or (Config.TOWER.RANGE_TILES * self.tileSize)))
+            row('Burn Damage', tostring(stats.burnDamage or 0))
+            row('Burn Ticks', tostring(stats.burnTicks or 0))
+            row('Tick Interval', string.format('%.2fs', stats.burnTickInterval or 0.5))
+        else
+            row('Damage', string.format('%d-%d', stats.damageMin or 0, stats.damageMax or 0))
+            row('Crit Damage', string.format('%d-%d', stats.critDamageMin or 0, stats.critDamageMax or 0))
+            row('Crit Chance', string.format('%d%%', math.floor((stats.critChance or 0) * 100 + 0.5)))
+            row('Fire Rate', string.format('%.1fs', stats.fireCooldown or 0))
+            row('Range', tostring(stats.rangePx or (Config.TOWER.RANGE_TILES * self.tileSize)))
+        end
     else
         if self.infoPanelAlpha and self.infoPanelAlpha > 0 then
             self.infoPanelAlpha = math.max(0, self.infoPanelAlpha - 6 * love.timer.getDelta())

@@ -19,6 +19,58 @@ towers.defs = {
 				rangePx = 150 -- pixels
 			}
 		}
+	},
+	-- New Fire Tower: short range, fast firing, applies burn over time
+	fire = {
+		levels = {
+			[1] = {
+				name = 'Fire Tower',
+				-- No direct impact damage; burn deals damage (first tick applied on hit)
+				damageMin = 0,
+				damageMax = 0,
+				critDamageMin = 0,
+				critDamageMax = 0,
+				critChance = 0.0,
+				-- Fire cadence and reach
+				fireCooldown = 1.0,
+				rangePx = 110,       -- short range (about 1.5 tiles)
+				projectileSpeedTps = 12, -- slightly faster travel
+				projectileMaxDistancePx = 90, -- very short visible streak
+				projectileScale = 0.55,
+				-- Cone geometry
+				coneHalfAngleRad = 0.8,
+				-- Burn effect
+				burnDamage = 3,
+				burnTicks = 5,
+				burnTickInterval = 1.0
+			},
+			[2] = {
+				name = 'Fire Tower',
+				damageMin = 0, damageMax = 0, critDamageMin = 0, critDamageMax = 0, critChance = 0.0,
+				fireCooldown = 1.0,
+				rangePx = 120,
+				projectileSpeedTps = 13,
+				projectileMaxDistancePx = 100,
+				projectileScale = 0.56,
+				coneHalfAngleRad = 0.8,
+				burnDamage = 4,
+				burnTicks = 5,
+				burnTickInterval = 1.0
+			},
+			[3] = {
+				name = 'Fire Tower',
+				damageMin = 0, damageMax = 0, critDamageMin = 0, critDamageMax = 0, critChance = 0.0,
+				fireCooldown = 1.0,
+				rangePx = 130,
+				projectileSpeedTps = 14,
+				projectileMaxDistancePx = 110,
+				projectileScale = 0.58,
+				coneHalfAngleRad = 0.8,
+				burnDamage = 5,
+				burnTicks = 5,
+				burnTickInterval = 1.0
+			}
+		}
 	}
 }
 

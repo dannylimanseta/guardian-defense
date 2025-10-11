@@ -15,6 +15,7 @@ function EnemySpawnManager:new(mapData)
     self.enemies = {}
     self.timeSinceLastSpawn = 0
     self.coreHealth = Config.GAME.CORE_HEALTH
+    self.coreShieldHp = 0
     self.enemySprites = {}
     self.flashChains = {}
     self.floaters = {}
@@ -33,6 +34,34 @@ function EnemySpawnManager:new(mapData)
     self.hitGlow.glow.min_luma = Config.ENEMY.HIT_GLOW_MIN_LUMA or 0.0
     self.hitGlow.glow.strength = Config.ENEMY.HIT_GLOW_STRENGTH or 10
     return self
+end
+-- Add temporary shield to Vigil Core (stacks)
+function EnemySpawnManager:addCoreShield(amount)
+    local add = math.max(0, tonumber(amount) or 0)
+    if add <= 0 then return end
+    self.coreShieldHp = (self.coreShieldHp or 0) + add
+end
+
+function EnemySpawnManager:getCoreShield()
+    return self.coreShieldHp or 0
+end
+
+function EnemySpawnManager:clearWaveShield()
+    self.coreShieldHp = 0
+end
+
+local function applyCoreHit(self, amount)
+    local dmg = math.max(0, amount or 0)
+    if dmg <= 0 then return end
+    local shield = self.coreShieldHp or 0
+    if shield > 0 then
+        local absorb = math.min(shield, dmg)
+        self.coreShieldHp = shield - absorb
+        dmg = dmg - absorb
+    end
+    if dmg > 0 then
+        self.coreHealth = math.max(0, (self.coreHealth or 0) - dmg)
+    end
 end
 
 local function gridToPixels(gridX, gridY, originX, originY, tileSize)
@@ -94,6 +123,11 @@ function EnemySpawnManager:requestSpawn(enemyId, spawnIndex, modifiers)
         if modifiers.hp and modifiers.hp ~= 1 then hp = math.floor(hp * modifiers.hp + 0.5) end
         if modifiers.reward and modifiers.reward ~= 1 then reward = reward * modifiers.reward end
     end
+    -- Add small per-enemy movement speed variability (+/-5%)
+    do
+        local jitter = (math.random() * 0.1) - 0.05
+        speedTps = speedTps * (1 + jitter)
+    end
 
     local enemy = {
         enemyId = enemyId or 'enemy_1',
@@ -114,7 +148,9 @@ function EnemySpawnManager:requestSpawn(enemyId, spawnIndex, modifiers)
         hitFlashTime = 0,
         kox = 0, koy = 0,
         kvx = 0, kvy = 0,
-        krot = 0, krotVel = 0
+        krot = 0, krotVel = 0,
+        -- damage over time / effects
+        burn = nil -- { damage, ticksLeft, tickInterval, timeSinceLast, dps } or nil
     }
     table.insert(self.enemies, enemy)
     return true
@@ -136,6 +172,9 @@ function EnemySpawnManager:spawnEnemy()
     end
 
     local baseSpeed, baseHp = getEnemyBase('enemy_1')
+    -- Add small per-enemy movement speed variability (+/-5%)
+    local spawnJitter = (math.random() * 0.1) - 0.05
+    local speedWithJitter = baseSpeed * (1 + spawnJitter)
 
     -- Enemy state
     local enemy = {
@@ -145,7 +184,7 @@ function EnemySpawnManager:spawnEnemy()
         path = path,
         pathIndex = 1,
         progress = 0, -- 0..1 along segment
-        speedTilesPerSecond = baseSpeed,
+        speedTilesPerSecond = speedWithJitter,
         t = 0, -- local time accumulator for bobbing
         bobPhase = math.random() * math.pi * 2,
         bobFreq = 10 + math.random() * 4, -- 10..14 Hz (faster)
@@ -162,7 +201,7 @@ function EnemySpawnManager:spawnEnemy()
     return true
 end
 
-function EnemySpawnManager:damageEnemy(index, amount, hitDX, hitDY, hitStrength, isCrit)
+function EnemySpawnManager:damageEnemy(index, amount, hitDX, hitDY, hitStrength, isCrit, damageType)
     local e = self.enemies[index]
     if not e then return end
     e.hp = math.max(0, e.hp - (amount or 1))
@@ -194,6 +233,12 @@ function EnemySpawnManager:damageEnemy(index, amount, hitDX, hitDY, hitStrength,
     -- include current knockback offsets for better alignment
     baseX = baseX + (e.kox or 0)
     baseY = baseY + (e.koy or 0)
+    -- choose floater color based on source
+    local color = nil
+    if damageType == 'fire' or damageType == 'burn' then
+        color = {0.878, 0.494, 0.490, 1} -- #E07E7D
+    end
+
     self.floaters[#self.floaters+1] = {
         baseX = baseX + jx,
         baseY = baseY + jy,
@@ -204,6 +249,7 @@ function EnemySpawnManager:damageEnemy(index, amount, hitDX, hitDY, hitStrength,
         endFactor = 0.5, -- return only 35% back toward origin
         text = (isCrit and (tostring(math.floor(amount + 0.5)) .. "!") or tostring(math.floor(amount + 0.5))),
         isCrit = isCrit and true or false,
+        color = color,
         age = 0,
         life = 0.5
     }
@@ -212,6 +258,31 @@ end
 function EnemySpawnManager:damageAll(amount)
     for i = #self.enemies, 1, -1 do
         self:damageEnemy(i, amount)
+    end
+end
+
+-- Apply or refresh a burning status on the target enemy at index.
+-- Refresh behavior: resets remaining ticks and interval timer; replaces damage/ticks with new values.
+function EnemySpawnManager:applyBurn(index, damagePerTick, ticks, tickInterval)
+    local e = self.enemies[index]
+    if not e then return end
+    local newDamage = math.max(0, math.floor((damagePerTick or 0) + 0.5))
+    local newTicks = math.max(0, math.floor((ticks or 0) + 0.5))
+    local newInterval = tickInterval or 0.5
+    if e.burn then
+        -- Refresh behavior without resetting the ticking timer: extend/upgrade burn
+        -- Keep timeSinceLast so frequent refreshes (e.g., from multiple towers) don't delay ticks
+        e.burn.damage = math.max(e.burn.damage or 0, newDamage)
+        e.burn.ticksLeft = math.max(e.burn.ticksLeft or 0, newTicks)
+        e.burn.tickInterval = newInterval or (e.burn.tickInterval or 0.5)
+        -- do NOT reset timeSinceLast
+    else
+        e.burn = {
+            damage = newDamage,
+            ticksLeft = newTicks,
+            tickInterval = newInterval,
+            timeSinceLast = 0
+        }
     end
 end
 
@@ -228,6 +299,25 @@ function EnemySpawnManager:update(dt)
     for i = #self.enemies, 1, -1 do
         local e = self.enemies[i]
         e.t = e.t + dt
+        -- process burn effect (refresh behavior handled by applyBurn)
+        if e.burn and (e.hp > 0) then
+            e.burn.timeSinceLast = (e.burn.timeSinceLast or 0) + dt
+            local interval = e.burn.tickInterval or 0.5
+            while e.burn.ticksLeft and e.burn.ticksLeft > 0 and e.burn.timeSinceLast >= interval do
+                e.burn.timeSinceLast = e.burn.timeSinceLast - interval
+                e.burn.ticksLeft = e.burn.ticksLeft - 1
+                -- burn tick damage (mark as burn so floater uses fire color)
+                self:damageEnemy(i, e.burn.damage, nil, nil, nil, nil, 'burn')
+                -- stop if enemy removed during damage
+                if not self.enemies[i] then break end
+            end
+            if self.enemies[i] then
+                e = self.enemies[i]
+                if e.burn and e.burn.ticksLeft <= 0 then e.burn = nil end
+            else
+                goto continue_loop
+            end
+        end
         -- Decay hit flash
         if e.hitFlashTime and e.hitFlashTime > 0 then
             e.hitFlashTime = math.max(0, e.hitFlashTime - dt)
@@ -251,8 +341,8 @@ function EnemySpawnManager:update(dt)
         end
         local path = e.path
         if not path or e.pathIndex >= #path then
-            -- Reached last node (assume core)
-            self.coreHealth = math.max(0, self.coreHealth - Config.ENEMY.DAMAGE_ON_HIT)
+            -- Reached last node (assume Vigil Core); apply shield absorption first
+            applyCoreHit(self, Config.ENEMY.DAMAGE_ON_HIT)
             table.remove(self.enemies, i)
         else
             local a = path[e.pathIndex]
@@ -266,6 +356,7 @@ function EnemySpawnManager:update(dt)
                 e.gridY = b.y
             end
         end
+        ::continue_loop::
     end
     -- update floating damage numbers (age/fade only; position computed analytically on draw)
     for i = #self.floaters, 1, -1 do
@@ -300,8 +391,10 @@ function EnemySpawnManager:draw(originX, originY, tileSize)
         if sprite then
             local baseScaleX = tileSize / sprite:getWidth()
             local baseScaleY = tileSize / sprite:getHeight()
-            local scaleX = baseScaleX * 0.6 -- reduce to 60%
-            local scaleY = baseScaleY * 0.6
+            local def = (Enemies or {})[e.enemyId or 'enemy_1'] or (Enemies and Enemies['enemy_1']) or {}
+            local tileScale = def.tileScale or 0.6
+            local scaleX = baseScaleX * tileScale
+            local scaleY = baseScaleY * tileScale
             -- center sprite in tile
             local drawX = x + (tileSize - sprite:getWidth() * scaleX) / 2
             local drawY = y + (tileSize - sprite:getHeight() * scaleY) / 2
@@ -334,6 +427,14 @@ function EnemySpawnManager:draw(originX, originY, tileSize)
                 local barX = cx - (barWidth / 2)
                 local barY = (drawY - 2) + barCfg.OFFSET_Y
                 Theme.drawHealthBar(barX, barY, barWidth, barHeight, percent, barCfg.BG_COLOR, barCfg.FG_COLOR, barCfg.CORNER_RADIUS)
+            end
+            -- small red/orange ember indicator for burning
+            if e.burn then
+                local t = (e.t or 0) * 8
+                local s = 1 + 0.1 * math.sin(t)
+                love.graphics.setColor(1, 0.35, 0.15, 0.8)
+                love.graphics.circle('fill', cx, drawY - 4, 3 * s)
+                love.graphics.setColor(1, 1, 1, 1)
             end
         else
             love.graphics.setColor(1, 0.2, 0.2, 1)
@@ -394,8 +495,9 @@ function EnemySpawnManager:draw(originX, originY, tileSize)
         love.graphics.print(txt, x + shadowOffset, y + shadowOffset, 0, scale, scale)
         -- bold effect via multi-pass prints (white on top)
         if f.isCrit then
-            -- EED080
-            love.graphics.setColor(0.933, 0.816, 0.502, alpha)
+            love.graphics.setColor(0.933, 0.816, 0.502, alpha) -- crit yellow
+        elseif f.color then
+            love.graphics.setColor(f.color[1], f.color[2], f.color[3], alpha)
         else
             love.graphics.setColor(1, 1, 1, alpha)
         end

@@ -99,6 +99,8 @@ function DeckManager:drawToHandSize()
 end
 
 function DeckManager:getCardDef(id)
+    -- normalize common typos/aliases
+    if id == 'energy_sheild' then id = 'energy_shield' end
     return self.catalog[id]
 end
 

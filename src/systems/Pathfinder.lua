@@ -53,6 +53,13 @@ function Pathfinder:findPath(mapData, startX, startY, goalX, goalY)
     tail = tail + 1
     visited[key(startX, startY)] = true
 
+    -- Randomize direction order per call to split ties across equal-length branches
+    local dirs = {DIRECTIONS[1], DIRECTIONS[2], DIRECTIONS[3], DIRECTIONS[4]}
+    for i = #dirs, 2, -1 do
+        local j = math.random(i)
+        dirs[i], dirs[j] = dirs[j], dirs[i]
+    end
+
     while head < tail do
         local node = queue[head]
         head = head + 1
@@ -76,7 +83,7 @@ function Pathfinder:findPath(mapData, startX, startY, goalX, goalY)
             return path
         end
 
-        for _, d in ipairs(DIRECTIONS) do
+        for _, d in ipairs(dirs) do
             local nx = node.x + d.x
             local ny = node.y + d.y
             if nx >= 1 and nx <= width and ny >= 1 and ny <= height then

@@ -43,7 +43,7 @@ Config.UI = {
 Config.GAME = {
     TARGET_FPS = 60,
     DEBUG_MODE = true,
-    CORE_HEALTH = 10,
+    CORE_HEALTH = 5,
     SCREEN_HIT_MOVE_AMP = 4
 }
 
@@ -55,6 +55,16 @@ Config.ENEMY_HP_BAR = {
     BG_COLOR = {1, 1, 1, 0.18},
     FG_COLOR = {1, 1, 1, 1},
     CORNER_RADIUS = 3
+}
+
+-- Core Health Bar (minimal)
+Config.CORE_HP_BAR = {
+    WIDTH = 36,
+    HEIGHT = 4,
+    OFFSET_Y = -50, -- relative to core center in pixels (negative = above)
+    BG_COLOR = {1, 1, 1, 0.2},
+    FG_COLOR = {1, 1, 1, 1},
+    CORNER_RADIUS = 2
 }
 
 -- Enemy Settings

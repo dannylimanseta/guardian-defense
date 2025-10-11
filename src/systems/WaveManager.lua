@@ -150,6 +150,10 @@ function WaveManager:update(dt)
             -- start intermission if none active and waves remain
             if #self.activeWaves == 0 and (self.nextWaveIndex <= #(self.stage.waves or {})) then
                 self.intermissionRemaining = math.max(0, self.stage.intermissionSeconds or 0)
+                -- Clear any wave-limited core shield when a wave fully ends and no waves are active
+                if self.enemySpawnManager and self.enemySpawnManager.clearWaveShield then
+                    self.enemySpawnManager:clearWaveShield()
+                end
             end
         end
     end
