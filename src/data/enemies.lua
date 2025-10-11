@@ -7,7 +7,7 @@ local Enemies = {
 		id = 'enemy_1',
 		name = 'Goblin',
 		speedTilesPerSecond = 0.9,
-		hp = 60,
+		hp = 48,
 		reward = 1
 	}
 }

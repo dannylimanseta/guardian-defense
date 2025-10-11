@@ -15,7 +15,7 @@ towers.defs = {
 				critDamageMax = 40,
 				critChance = 0.15, -- 15%
 				-- Fire and range
-				fireCooldown = 1.5, -- seconds between shots
+				fireCooldown = 1.2, -- seconds between shots (slightly faster)
 				rangePx = 150 -- pixels
 			}
 		}
