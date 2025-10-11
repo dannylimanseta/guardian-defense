@@ -100,19 +100,6 @@ function Game:draw()
         self.gridMap:drawInfoPanel()
     end
 
-    if Config.GAME.DEBUG_MODE and self.waveManager then
-        local x = Config.LOGICAL_WIDTH - 260
-        local y = 8
-        local pad = 8
-        Theme.drawPanel(x, y, 252, 56)
-        local inter = self.waveManager:getIntermissionRemaining() or 0
-        local nextIdx = self.waveManager:getNextWaveIndex() or 1
-        local text1 = string.format("Next Wave: %d", nextIdx)
-        local text2 = string.format("Intermission: %.1fs", inter)
-        Theme.drawText(text1, x + pad, y + pad, Theme.FONTS.MEDIUM, Theme.COLORS.WHITE)
-        Theme.drawText(text2, x + pad, y + pad + Theme.FONTS.MEDIUM:getHeight() + 4, Theme.FONTS.MEDIUM, Theme.COLORS.WHITE)
-    end
-
     love.graphics.pop()
 end
 
