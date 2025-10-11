@@ -4,6 +4,7 @@ local Config = require 'src/config/Config'
 local Pathfinder = require 'src/systems/Pathfinder'
 local moonshine = require 'src/libs/moonshine'
 local Theme = require 'src/theme'
+local Enemies = require 'src/data/enemies'
 
 local EnemySpawnManager = {}
 EnemySpawnManager.__index = EnemySpawnManager
@@ -14,7 +15,7 @@ function EnemySpawnManager:new(mapData)
     self.enemies = {}
     self.timeSinceLastSpawn = 0
     self.coreHealth = Config.GAME.CORE_HEALTH
-    self.enemySprite = nil
+    self.enemySprites = {}
     self.flashChains = {}
     self.floaters = {}
     -- Direct shader fallback for per-sprite white flash
@@ -44,6 +45,34 @@ local function computePath(mapData, spawnPos, corePos)
     return Pathfinder:findPath(mapData, spawnPos.x, spawnPos.y, corePos.x, corePos.y)
 end
 
+function EnemySpawnManager:getSpriteFor(enemyId)
+    local id = enemyId or 'enemy_1'
+    if self.enemySprites[id] then return self.enemySprites[id] end
+    local filename = string.format('%s/%s.png', Config.ENTITIES_PATH, id)
+    local path = filename
+    if not love.filesystem.getInfo(path) and id ~= 'enemy_1' then
+        -- fallback to enemy_1 if specific art not found
+        path = string.format('%s/%s.png', Config.ENTITIES_PATH, 'enemy_1')
+    end
+    if love.filesystem.getInfo(path) then
+        local img = love.graphics.newImage(path)
+        img:setFilter('nearest', 'nearest')
+        self.enemySprites[id] = img
+        return img
+    end
+    return nil
+end
+
+local function getEnemyBase(defId)
+    local def = (Enemies or {})[defId or 'enemy_1'] or (Enemies and Enemies['enemy_1']) or nil
+    if def then
+        return def.speedTilesPerSecond or Config.ENEMY.SPEED_TILES_PER_SECOND,
+               def.hp or Config.ENEMY.DEFAULT_HP,
+               def.reward or 1
+    end
+    return Config.ENEMY.SPEED_TILES_PER_SECOND, Config.ENEMY.DEFAULT_HP, 1
+end
+
 -- Public API for WaveManager: request spawning a specific enemy at a given spawn index
 function EnemySpawnManager:requestSpawn(enemyId, spawnIndex, modifiers)
     if not self.mapData or not self.mapData.special then return false end
@@ -56,9 +85,10 @@ function EnemySpawnManager:requestSpawn(enemyId, spawnIndex, modifiers)
     local path = computePath(self.mapData, spawnPos, core)
     if not path or #path == 0 then return false end
 
-    local speedTps = Config.ENEMY.SPEED_TILES_PER_SECOND
-    local hp = Config.ENEMY.DEFAULT_HP
-    local reward = 1
+    local baseSpeed, baseHp, baseReward = getEnemyBase(enemyId)
+    local speedTps = baseSpeed
+    local hp = baseHp
+    local reward = baseReward
     if modifiers then
         if modifiers.speed and modifiers.speed ~= 1 then speedTps = speedTps * modifiers.speed end
         if modifiers.hp and modifiers.hp ~= 1 then hp = math.floor(hp * modifiers.hp + 0.5) end
@@ -66,6 +96,7 @@ function EnemySpawnManager:requestSpawn(enemyId, spawnIndex, modifiers)
     end
 
     local enemy = {
+        enemyId = enemyId or 'enemy_1',
         gridX = spawnPos.x,
         gridY = spawnPos.y,
         path = path,
@@ -104,20 +135,23 @@ function EnemySpawnManager:spawnEnemy()
         return false
     end
 
+    local baseSpeed, baseHp = getEnemyBase('enemy_1')
+
     -- Enemy state
     local enemy = {
+        enemyId = 'enemy_1',
         gridX = spawnPos.x,
         gridY = spawnPos.y,
         path = path,
         pathIndex = 1,
         progress = 0, -- 0..1 along segment
-        speedTilesPerSecond = Config.ENEMY.SPEED_TILES_PER_SECOND,
+        speedTilesPerSecond = baseSpeed,
         t = 0, -- local time accumulator for bobbing
         bobPhase = math.random() * math.pi * 2,
         bobFreq = 10 + math.random() * 4, -- 10..14 Hz (faster)
         bobAmp = (0.02 + math.random() * 0.02), -- 0.02..0.04 of tile (smaller)
-        hp = Config.ENEMY.DEFAULT_HP,
-        maxHp = Config.ENEMY.DEFAULT_HP,
+        hp = baseHp,
+        maxHp = baseHp,
         -- hit effects
         hitFlashTime = 0,
         kox = 0, koy = 0, -- knockback offset (pixels)
@@ -242,13 +276,6 @@ function EnemySpawnManager:update(dt)
 end
 
 function EnemySpawnManager:draw(originX, originY, tileSize)
-    if not self.enemySprite then
-        local path = string.format('%s/%s', Config.ENTITIES_PATH, 'enemy_1.png')
-        if love.filesystem.getInfo(path) then
-            self.enemySprite = love.graphics.newImage(path)
-            self.enemySprite:setFilter('nearest', 'nearest')
-        end
-    end
     love.graphics.setColor(1, 1, 1, 1)
     for _, e in ipairs(self.enemies) do
         -- Reset draw state to avoid leaked alpha/blend/shader from previous draws
@@ -269,17 +296,18 @@ function EnemySpawnManager:draw(originX, originY, tileSize)
         x = x + (e.kox or 0)
         y = y + (e.koy or 0)
         
-        if self.enemySprite then
-            local baseScaleX = tileSize / self.enemySprite:getWidth()
-            local baseScaleY = tileSize / self.enemySprite:getHeight()
+        local sprite = self:getSpriteFor(e.enemyId)
+        if sprite then
+            local baseScaleX = tileSize / sprite:getWidth()
+            local baseScaleY = tileSize / sprite:getHeight()
             local scaleX = baseScaleX * 0.6 -- reduce to 60%
             local scaleY = baseScaleY * 0.6
             -- center sprite in tile
-            local drawX = x + (tileSize - self.enemySprite:getWidth() * scaleX) / 2
-            local drawY = y + (tileSize - self.enemySprite:getHeight() * scaleY) / 2
-            local cx = drawX + (self.enemySprite:getWidth() * scaleX) / 2
-            local cy = drawY + (self.enemySprite:getHeight() * scaleY) / 2
-            love.graphics.draw(self.enemySprite, cx, cy, (e.krot or 0), scaleX, scaleY, self.enemySprite:getWidth()/2, self.enemySprite:getHeight()/2)
+            local drawX = x + (tileSize - sprite:getWidth() * scaleX) / 2
+            local drawY = y + (tileSize - sprite:getHeight() * scaleY) / 2
+            local cx = drawX + (sprite:getWidth() * scaleX) / 2
+            local cy = drawY + (sprite:getHeight() * scaleY) / 2
+            love.graphics.draw(sprite, cx, cy, (e.krot or 0), scaleX, scaleY, sprite:getWidth()/2, sprite:getHeight()/2)
             -- White flash overlay using shader + strong bloom via moonshine glow
             if e.hitFlashTime and e.hitFlashTime > 0 then
                 local dur = Config.ENEMY.HIT_FLASH_DURATION or 0.12
@@ -291,7 +319,7 @@ function EnemySpawnManager:draw(originX, originY, tileSize)
                     love.graphics.setBlendMode('add')
                     local prevShader = love.graphics.getShader()
                     love.graphics.setShader(self.whitenShader)
-                    love.graphics.draw(self.enemySprite, cx, cy, (e.krot or 0), scaleX, scaleY, self.enemySprite:getWidth()/2, self.enemySprite:getHeight()/2)
+                    love.graphics.draw(sprite, cx, cy, (e.krot or 0), scaleX, scaleY, sprite:getWidth()/2, sprite:getHeight()/2)
                     love.graphics.setShader(prevShader)
                     love.graphics.setBlendMode('alpha')
                 end)

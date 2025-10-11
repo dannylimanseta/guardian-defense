@@ -124,7 +124,7 @@ function WaveManager:startNextWave()
 end
 
 function WaveManager:update(dt)
-    if not self.activeWaves or #self.activeWaves == 0 then return end
+    -- Update active waves
     for i = #self.activeWaves, 1, -1 do
         local wave = self.activeWaves[i]
         wave.elapsed = wave.elapsed + dt
@@ -147,6 +147,22 @@ function WaveManager:update(dt)
         end
         if allDone or (#wave.spawners == 0) then
             table.remove(self.activeWaves, i)
+            -- start intermission if none active and waves remain
+            if #self.activeWaves == 0 and (self.nextWaveIndex <= #(self.stage.waves or {})) then
+                self.intermissionRemaining = math.max(0, self.stage.intermissionSeconds or 0)
+            end
+        end
+    end
+
+    -- Intermission countdown and auto-start
+    if (#self.activeWaves == 0) and (self.nextWaveIndex <= #(self.stage.waves or {})) then
+        if self.intermissionRemaining and self.intermissionRemaining > 0 then
+            self.intermissionRemaining = math.max(0, self.intermissionRemaining - dt)
+            if self.intermissionRemaining == 0 and self.stage.autoStartNext then
+                self:startNextWave()
+            end
+        elseif self.stage.autoStartNext then
+            self:startNextWave()
         end
     end
 end
@@ -157,6 +173,14 @@ end
 
 function WaveManager:areWavesComplete()
     return (self.nextWaveIndex > #(self.stage.waves or {})) and (#self.activeWaves == 0)
+end
+
+function WaveManager:getIntermissionRemaining()
+    return self.intermissionRemaining or 0
+end
+
+function WaveManager:getNextWaveIndex()
+    return self.nextWaveIndex or 1
 end
 
 return WaveManager
