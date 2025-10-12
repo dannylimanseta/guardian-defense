@@ -34,11 +34,11 @@ return {
 			reward = 80,
 			schedule = {
 				-- opening half: enemy_1 from both spawns
-				T.burstAt(0, 'enemy_1', 6, 0.4, 1),
-				T.burstAt(0, 'enemy_1', 6, 0.4, 2),
+				T.burstAt(0, 'enemy_1', 6, 0.65, 1, { jitter = 0.2 }),
+				T.burstAfterEnd(1.2, 'enemy_1', 6, 0.65, 2, { jitter = 0.25 }),
 				-- staggered later half: enemy_2 starts slightly later
-				T.burstAfter(1.5, 'enemy_2', 6, 0.5, 1),
-				T.burstAfter(0.0, 'enemy_2', 6, 0.5, 2)
+				T.burstAfterEnd(2.0, 'enemy_2', 6, 0.78, 1, { jitter = 0.18 }),
+				T.burstAfterEnd(1.3, 'enemy_2', 6, 0.78, 2, { jitter = 0.18 })
 			}
 		}
 	}

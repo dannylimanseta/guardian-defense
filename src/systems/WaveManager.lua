@@ -78,7 +78,7 @@ local function buildSpawnersFromSchedule(absSchedule, multipliers)
         local baseCount = ev.count or 1
         local finalCount = math.max(0, math.floor(baseCount * (multipliers.count or 1) + 0.0001))
         if finalCount > 0 then
-            local interval = ev.every or 0
+            local interval = (ev.every or 0) * (Config.ENEMY.SPAWN_INTERVAL_MULTIPLIER or 1)
             local speedMul = clampMin(multipliers.spawnSpeed or 1, 0.0001)
             local finalInterval = interval / speedMul
             if finalCount == 1 then

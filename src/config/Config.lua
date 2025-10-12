@@ -37,7 +37,30 @@ Config.UI = {
     BUTTON_HEIGHT = 32,
     PANEL_PADDING = 8,
     SHOW_CORE_HEALTH = true,
-    SHOW_CORE_HEALTH_ABOVE_CORE = false
+    SHOW_CORE_HEALTH_ABOVE_CORE = false,
+    COIN_TRACKER = {
+        ICON = 'coin_1.png',
+        MARGIN = 18,
+        OFFSET_Y = 80,
+        ICON_SCALE = 0.7,
+        ICON_TEXT_SPACING = 12,
+        FONT = 'BOLD_LARGE',
+        COLOR = {1, 1, 1, 1},
+        SHADOW_COLOR = {0, 0, 0, 0.6}
+    },
+    TOWER_MENU = {
+        WIDTH = 220,
+        ROW_HEIGHT = 44,
+        PADDING = 12,
+        CORNER_RADIUS = 18,
+        GAP = 8,
+        OFFSET_X = 40,
+        OFFSET_Y = -30,
+        ICON_SIZE = 28,
+        ICON_TEXT_SPACING = 10,
+        FADE_IN_DURATION = 0.18,
+        FADE_IN_STAGGER = 0.06
+    }
 }
 
 -- Game Settings
@@ -45,7 +68,19 @@ Config.GAME = {
     TARGET_FPS = 60,
     DEBUG_MODE = true,
     CORE_HEALTH = 5,
-    SCREEN_HIT_MOVE_AMP = 4
+    SCREEN_HIT_MOVE_AMP = 4,
+    COIN_DROP = {
+        enemy_1 = { chance = 0.7, coins = 1 },
+        enemy_2 = { chance = 0.7, coins = 2 },
+        pickup = {
+            travelTime = 0.9,
+            travelTimeVariance = 0.25,
+            arcHeight = -220,
+            lateralJitter = 24,
+            delayBetweenCoins = 0.08,
+            startLift = -10
+        }
+    }
 }
 
 -- UI: Enemy Health Bars
@@ -72,6 +107,7 @@ Config.CORE_HP_BAR = {
 Config.ENEMY = {
     SPEED_TILES_PER_SECOND = 0.9,  -- 70% slower (30% of original speed)
     SPAWN_INTERVAL = 2,          -- Seconds between spawns
+    SPAWN_INTERVAL_MULTIPLIER = 1.8, -- Multiplies wave spawn spacing for more breathing room
     MAX_ACTIVE = 20,             -- Max enemies active at once
     DAMAGE_ON_HIT = 1,           -- Damage to core on hit
     DEFAULT_HP = 48,              -- Enemy starting HP (reduced 20%)
@@ -82,7 +118,9 @@ Config.ENEMY = {
     -- Hit VFX
     HIT_FLASH_DURATION = 0.12,   -- seconds the white flash/bloom lasts
     HIT_GLOW_STRENGTH = 10,      -- moonshine glow blur strength (higher = blurrier)
-    HIT_GLOW_MIN_LUMA = 0.0      -- include all luma in glow threshold for strong bloom
+    HIT_GLOW_MIN_LUMA = 0.0,     -- include all luma in glow threshold for strong bloom
+    SPAWN_PATH_OFFSET = 0.24,    -- Initial fraction along the first path segment for spawned enemies
+    SPAWN_PATH_OFFSET_JITTER = 0.1 -- Random variance applied to spawn path offset
 }
 
 -- Tower Settings
@@ -136,7 +174,7 @@ Config.TOWER = {
 -- Deck / Card System Settings
 Config.DECK = {
     HAND_SIZE = 5,
-    ENERGY_PER_WAVE = 5,
+    ENERGY_PER_WAVE = 10,
     DISCARD_ON_WAVE_END = true,
     -- UI layout (logical coordinates)
     HAND_MARGIN = 12,
@@ -144,6 +182,7 @@ Config.DECK = {
     CARD_HEIGHT = 140,
     CARD_SPACING = 12,
     CARD_TEMPLATE_SCALE = 0.7,
+    CARD_ART_OFFSET_Y = 15,
     CARD_HIT_SCALE = 1.5,
     SHOW_CARD_BOUNDS = false,
     CARD_BOUNDS_SHRINK_FRAC = 1,

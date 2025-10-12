@@ -27,6 +27,11 @@ function EnemySpawnManager:new(mapData)
     self.enemySprites = {}
     self.flashChains = {}
     self.floaters = {}
+    self.worldOriginX = 0
+    self.worldOriginY = 0
+    self.worldTileSize = Config.TILE_SIZE
+    self.killedEvents = {}
+    self.deathBursts = {}
     -- Direct shader fallback for per-sprite white flash
     self.whitenShader = love.graphics.newShader([[
         extern number amount; // 0..1
@@ -42,6 +47,84 @@ function EnemySpawnManager:new(mapData)
     self.hitGlow.glow.min_luma = Config.ENEMY.HIT_GLOW_MIN_LUMA or 0.0
     self.hitGlow.glow.strength = Config.ENEMY.HIT_GLOW_STRENGTH or 10
     return self
+end
+
+function EnemySpawnManager:setWorldParams(originX, originY, tileSize)
+    self.worldOriginX = originX or 0
+    self.worldOriginY = originY or 0
+    self.worldTileSize = tileSize or Config.TILE_SIZE
+end
+
+local function computeEnemyWorldPosition(self, enemy)
+    if not enemy then return nil end
+    local tileSize = self.worldTileSize or Config.TILE_SIZE
+    local path = enemy.path
+    local progress = math.max(0, math.min(1, enemy.progress or 0))
+    local px, py
+    if path and #path > 0 then
+        local a = path[math.max(1, enemy.pathIndex)]
+        local b = path[math.min(#path, enemy.pathIndex + 1)] or a
+        local ax = (a.x - 0.5) * tileSize
+        local ay = (a.y - 0.5) * tileSize
+        local bx = (b.x - 0.5) * tileSize
+        local by = (b.y - 0.5) * tileSize
+        px = ax + (bx - ax) * progress
+        py = ay + (by - ay) * progress
+    else
+        px = (enemy.gridX - 0.5) * tileSize
+        py = (enemy.gridY - 0.5) * tileSize
+    end
+    px = px + (enemy.kox or 0)
+    py = py + (enemy.koy or 0)
+    px = px + (self.worldOriginX or 0)
+    py = py + (self.worldOriginY or 0)
+    return px, py
+end
+
+function EnemySpawnManager:enqueueKilledEnemy(enemy)
+    if not enemy then return end
+    local wx, wy = computeEnemyWorldPosition(self, enemy)
+    if not wx or not wy then return end
+    local event = {
+        enemyId = enemy.enemyId or 'enemy_1',
+        worldX = wx,
+        worldY = wy
+    }
+    self.killedEvents[#self.killedEvents + 1] = event
+    self:spawnDeathBurst(wx, wy)
+end
+
+function EnemySpawnManager:consumeKilledEvents()
+    if not self.killedEvents or #self.killedEvents == 0 then return nil end
+    local events = self.killedEvents
+    self.killedEvents = {}
+    return events
+end
+
+function EnemySpawnManager:spawnDeathBurst(x, y)
+    local burst = {
+        x = x,
+        y = y,
+        age = 0,
+        duration = 0.4,
+        particles = {}
+    }
+    local num = 10
+    for i = 1, num do
+        local angle = math.random() * math.pi * 2
+        local speed = 120 + math.random() * 80
+        local size = 3 + math.random() * 2
+        local lifeScale = 0.7 + math.random() * 0.3
+        burst.particles[#burst.particles + 1] = {
+            x = x,
+            y = y,
+            vx = math.cos(angle) * speed,
+            vy = math.sin(angle) * speed,
+            size = size,
+            lifeScale = lifeScale
+        }
+    end
+    self.deathBursts[#self.deathBursts + 1] = burst
 end
 -- Add temporary shield to Vigil Core (stacks)
 function EnemySpawnManager:addCoreShield(amount, waveTag)
@@ -140,6 +223,30 @@ local function getEnemyBase(defId)
     return Config.ENEMY.SPEED_TILES_PER_SECOND, Config.ENEMY.DEFAULT_HP, 1
 end
 
+local function applySpawnPathOffset(enemy, path)
+    if not enemy or not path or #path < 2 then return end
+    local base = Config.ENEMY.SPAWN_PATH_OFFSET or 0
+    if base <= 0 then return end
+    local jitter = Config.ENEMY.SPAWN_PATH_OFFSET_JITTER or 0
+    local offset = base
+    if jitter and jitter ~= 0 then
+        offset = offset + ((math.random() * 2) - 1) * jitter
+    end
+    offset = math.max(0, math.min(offset, 0.95))
+    if offset <= 0 then return end
+
+    local fractional = offset
+    local idx = enemy.pathIndex or 1
+    while fractional >= 1 and idx < (#path - 1) do
+        fractional = fractional - 1
+        idx = idx + 1
+    end
+    enemy.pathIndex = idx
+    enemy.progress = fractional
+    enemy.gridX = path[idx].x
+    enemy.gridY = path[idx].y
+end
+
 -- Public API for WaveManager: request spawning a specific enemy at a given spawn index
 function EnemySpawnManager:requestSpawn(enemyId, spawnIndex, modifiers)
     if not self.mapData or not self.mapData.special then return false end
@@ -190,6 +297,7 @@ function EnemySpawnManager:requestSpawn(enemyId, spawnIndex, modifiers)
         -- damage over time / effects
         burn = nil -- { damage, ticksLeft, tickInterval, timeSinceLast, dps } or nil
     }
+    applySpawnPathOffset(enemy, path)
     table.insert(self.enemies, enemy)
     return true
 end
@@ -235,6 +343,7 @@ function EnemySpawnManager:spawnEnemy()
         kvx = 0, kvy = 0,  -- knockback velocity (pixels/sec)
         krot = 0, krotVel = 0 -- rotational knock
     }
+    applySpawnPathOffset(enemy, path)
     table.insert(self.enemies, enemy)
     return true
 end
@@ -254,6 +363,7 @@ function EnemySpawnManager:damageEnemy(index, amount, hitDX, hitDY, hitStrength,
         e.krotVel = (e.krotVel or 0) + (-hitDX) * Config.ENEMY.KNOCKBACK_ROT_IMPULSE
     end
     if e.hp <= 0 then
+        self:enqueueKilledEnemy(e)
         table.remove(self.enemies, index)
     end
     -- spawn floating damage text near the enemy's current tile center (pixel space relative to grid origin)
@@ -397,23 +507,26 @@ function EnemySpawnManager:update(dt)
         ::continue_loop::
     end
 
-	local vis = self.coreShieldVisual
-	if vis then
-		vis.time = (vis.time or 0) + dt
-		vis.pulse = (vis.pulse or 0) + dt
-		if vis.active or (self.coreShieldHp or 0) > 0 then
-			vis.active = true
-			vis.bounceT = (vis.bounceT or 0) + dt
-			vis.alpha = math.min(1, (vis.alpha or 0) + dt * 6)
-		else
-			vis.alpha = math.max(0, (vis.alpha or 0) - dt * 3)
-			if vis.alpha <= 0 then
-				vis.active = false
-				vis.pulse = 0
-				vis.bounceT = 0
-			end
-		end
-	end
+    -- Update death bursts
+    if self.deathBursts and #self.deathBursts > 0 then
+        for i = #self.deathBursts, 1, -1 do
+            local burst = self.deathBursts[i]
+            burst.age = burst.age + dt
+            local lifeFrac = burst.age / (burst.duration or 0.4)
+            if lifeFrac >= 1 then
+                table.remove(self.deathBursts, i)
+            else
+                local decay = 1 - lifeFrac
+                for _, p in ipairs(burst.particles) do
+                    p.vx = p.vx * (0.9 + 0.05 * decay)
+                    p.vy = p.vy * (0.9 + 0.05 * decay) + 120 * dt
+                    p.x = p.x + p.vx * dt
+                    p.y = p.y + p.vy * dt
+                    p.alpha = decay
+                end
+            end
+        end
+    end
 
     -- update floating damage numbers (age/fade only; position computed analytically on draw)
     for i = #self.floaters, 1, -1 do
@@ -499,6 +612,26 @@ function EnemySpawnManager:draw(originX, originY, tileSize)
             love.graphics.rectangle('fill', x + (tileSize - size)/2, y + (tileSize - size)/2, size, size)
             love.graphics.setColor(1, 1, 1, 1)
         end
+    end
+    -- draw death bursts with moonshine glow
+    if self.deathBursts and #self.deathBursts > 0 then
+        for _, burst in ipairs(self.deathBursts) do
+            local alpha = 1 - (burst.age / (burst.duration or 0.4))
+            if alpha > 0 then
+                self.hitGlow(function()
+                    love.graphics.setBlendMode('add')
+                    for _, p in ipairs(burst.particles) do
+                        local px = originX + (p.x - (self.worldOriginX or 0))
+                        local py = originY + (p.y - (self.worldOriginY or 0))
+                        local size = (p.size or 4) * (p.lifeScale or 1)
+                        love.graphics.setColor(1, 1, 1, (p.alpha or alpha) * 0.9)
+                        love.graphics.circle('fill', px, py, size)
+                    end
+                    love.graphics.setBlendMode('alpha')
+                end)
+            end
+        end
+        love.graphics.setColor(1, 1, 1, 1)
     end
     -- draw floating damage numbers on top
     for _, f in ipairs(self.floaters) do
