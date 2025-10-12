@@ -132,7 +132,6 @@ function GridMap:draw()
 				local p = string.format('%s/%s', Config.TILESET_PATH, 'heart_1.png')
 				if love.filesystem.getInfo(p) then
 					local img = love.graphics.newImage(p)
-					img:setFilter('nearest', 'nearest')
 					return img
 				end
 				return nil
@@ -141,7 +140,6 @@ function GridMap:draw()
 				local p = 'assets/images/effects/fx_shield.png'
 				if love.filesystem.getInfo(p) then
 					local img = love.graphics.newImage(p)
-					img:setFilter('linear', 'linear')
 					return img
 				end
 				return nil

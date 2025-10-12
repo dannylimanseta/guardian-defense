@@ -30,7 +30,6 @@ function ResolutionManager:init()
     
     -- Set up canvas for rendering
     self.canvas = love.graphics.newCanvas(self.logicalWidth, self.logicalHeight)
-    if self.canvas.setFilter then self.canvas:setFilter('nearest', 'nearest') end
     if self.canvas.setWrap then self.canvas:setWrap('clamp', 'clamp') end
     
     -- Fullscreen toggle state

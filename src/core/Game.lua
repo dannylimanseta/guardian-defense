@@ -27,8 +27,8 @@ function Game:init()
     
     -- Set up Love2D window
     love.window.setTitle(Config.WINDOW_TITLE)
-    -- Use nearest for sprites/canvas, but fonts are set to linear individually
-    love.graphics.setDefaultFilter("nearest", "nearest")
+    -- Use linear filtering globally; override per asset if pixel-crisp visuals are needed
+    love.graphics.setDefaultFilter("linear", "linear")
     
     -- Disable post-processing by default
     self.effect = nil
@@ -158,6 +158,7 @@ function Game:mousereleased(x, y, button)
     if not self.handUI then return end
     local info = self.handUI:mousereleased(gameX, gameY, button)
     if not info or not info.cardId or not info.cardIndex then return end
+    local startX, startY = info.startX, info.startY
     -- Check energy before attempting to play
     local can, reason = self.deck:canPlayCard(info.cardId)
     if not can then return end
@@ -179,7 +180,15 @@ function Game:mousereleased(x, y, button)
         -- Non-targeting: enforce drag-up threshold (already locked in HandUI)
         if def.type == 'apply_core_shield' and def.payload and def.payload.shieldHp then
             if self.gridMap and self.gridMap.enemySpawnManager and self.gridMap.enemySpawnManager.addCoreShield then
-                self.gridMap.enemySpawnManager:addCoreShield(def.payload.shieldHp)
+                local waveTag = nil
+                if self.waveManager and self.waveManager.getCurrentWaveIndex then
+                    waveTag = self.waveManager:getCurrentWaveIndex()
+                end
+                if waveTag == nil and self.waveManager and self.waveManager.getNextWaveIndex then
+                    -- no wave active yet, tag for the upcoming wave once it begins
+                    waveTag = self.waveManager:getNextWaveIndex()
+                end
+                self.gridMap.enemySpawnManager:addCoreShield(def.payload.shieldHp, waveTag)
                 placed = true
             end
         end
@@ -187,6 +196,10 @@ function Game:mousereleased(x, y, button)
     if not placed then
         -- refund energy and card if placement invalid
         self.deck:refundLastPlayed(def.id)
+    else
+        if self.handUI and self.handUI.onCardPlayed then
+            self.handUI:onCardPlayed(info.cardIndex, def.id, startX, startY)
+        end
     end
 end
 

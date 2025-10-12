@@ -179,11 +179,10 @@ local function loadCardArtForId(cardId)
 	}
 	for i = 1, #candidates do
 		local path = candidates[i]
-		if love.filesystem.getInfo(path) then
-			local img = love.graphics.newImage(path)
-			img:setFilter('nearest', 'nearest')
-			cardArtCache[cardId] = img
-			return img
+        if love.filesystem.getInfo(path) then
+            local img = love.graphics.newImage(path)
+            cardArtCache[cardId] = img
+            return img
 		end
 	end
 	cardArtCache[cardId] = false
@@ -194,9 +193,8 @@ local function ensureCardGlow(self)
 	if self.fxCardGlow == false then return nil end
 	if not self.fxCardGlow then
 		local ok, img = pcall(love.graphics.newImage, FX_CARD_GLOW_PATH)
-		if ok and img then
-			img:setFilter('linear', 'linear')
-			self.fxCardGlow = img
+        if ok and img then
+            self.fxCardGlow = img
 		else
 			self.fxCardGlow = false
 			return nil
@@ -433,7 +431,6 @@ function HandUI:getCardHitSize()
         local path = string.format('%s/%s', Config.ENTITIES_PATH, 'card_template_1.png')
         if love.filesystem.getInfo(path) then
             self.cardTemplate = love.graphics.newImage(path)
-            self.cardTemplate:setFilter('nearest', 'nearest')
         end
     end
     if self.cardTemplate then
@@ -570,31 +567,73 @@ function HandUI:mousereleased(x, y, button)
             return false
         end
     end
+    local startX = nil
+    local startY = nil
+    if self.drag.smoothX and self.drag.smoothY then
+        startX = self.drag.smoothX
+        startY = self.drag.smoothY
+    else
+        local idx = self.drag.cardIndex
+        if idx then
+            local key = self.indexToKey[idx]
+            local st = key and self.cardStates[key] or nil
+            if st and st.x and st.y then
+                startX, startY = st.x, st.y
+            else
+                local n = #self.deck:getHand()
+                startX, startY = self:getCardTransform(idx, n, false)
+            end
+        end
+    end
+    if not isTargeting then
+        startX = startX or x
+        startY = startY or y
+    else
+        local idx = self.drag.cardIndex
+        if idx then
+            local key = self.indexToKey[idx]
+            if key and self.cardStates[key] then
+                local st = self.cardStates[key]
+                if st.x and st.y then
+                    startX = st.x
+                    startY = st.y
+                end
+            end
+        end
+        startX = startX or x
+        startY = startY or y
+    end
     local info = {
         played = false,
         cardId = self.drag.cardId,
         cardIndex = self.drag.cardIndex,
         dropX = x,
-        dropY = y
+        dropY = y,
+        startX = startX,
+        startY = startY
     }
     resetDragTilt(self)
     self.drag.active = false
     return info
 end
 
-function HandUI:onCardPlayed(index, cardId)
-    -- start slide-up and fade-out from the index's last known transform
-    if not index then return end
+function HandUI:onCardPlayed(index, cardId, startXOverride, startYOverride)
     local key = self.indexToKey[index]
     local st = key and self.cardStates[key] or nil
     local startX, startY, rot
-    if st and st.x and st.y and st.rot then
-        startX, startY, rot = st.x, st.y, st.rot
+    if startXOverride ~= nil and startYOverride ~= nil then
+        startX = startXOverride
+        startY = startYOverride
     else
-        -- fallback to immediate transform if state not captured yet
-        local n = #self.deck:getHand()
-        startX, startY, rot = self:getCardTransform(index, n, false)
+        if st and st.x and st.y and st.rot then
+            startX, startY, rot = st.x, st.y, st.rot
+        else
+            -- fallback to immediate transform if state not captured yet
+            local n = #self.deck:getHand()
+            startX, startY, rot = self:getCardTransform(index, n, false)
+        end
     end
+    rot = 0 -- keep non-target animation upright
     local anim = {
         id = cardId,
         startX = startX or 0,
@@ -602,7 +641,7 @@ function HandUI:onCardPlayed(index, cardId)
         rot = rot or 0,
         t = 0,
         dur = 0.18,
-        slide = 180
+        slide = 60
     }
     if key then
         self.playAnimations[key] = anim
@@ -647,16 +686,17 @@ function HandUI:draw()
         end
 		local cw, ch = Config.DECK.CARD_WIDTH, Config.DECK.CARD_HEIGHT
 		-- lazy-load template
-		if not self.cardTemplate then
-			local path = string.format('%s/%s', Config.ENTITIES_PATH, 'card_template_1.png')
-			if love.filesystem.getInfo(path) then
-				self.cardTemplate = love.graphics.newImage(path)
-				self.cardTemplate:setFilter('nearest', 'nearest')
-			end
-		end
+        if not self.cardTemplate then
+            local path = string.format('%s/%s', Config.ENTITIES_PATH, 'card_template_1.png')
+            if love.filesystem.getInfo(path) then
+                self.cardTemplate = love.graphics.newImage(path)
+            end
+        end
 		love.graphics.push()
         love.graphics.translate(cx, cy)
-        love.graphics.rotate(rot)
+        if rot ~= 0 then
+            love.graphics.rotate(rot)
+        end
         local cw2, ch2 = cw * 0.5, ch * 0.5
 
         local glowImg, glowAlpha, glowScale = computeDragGlow(self, def, i, cw, ch)
@@ -789,13 +829,12 @@ function HandUI:draw()
 		-- draw axis-aligned dragged card at (x,y)
 		local cx, cy = x + cw * 0.5, y + ch * 0.5
 		-- lazy-load template
-		if not self.cardTemplate then
-			local path = string.format('%s/%s', Config.ENTITIES_PATH, 'card_template_1.png')
-			if love.filesystem.getInfo(path) then
-				self.cardTemplate = love.graphics.newImage(path)
-				self.cardTemplate:setFilter('nearest', 'nearest')
-			end
-		end
+        if not self.cardTemplate then
+            local path = string.format('%s/%s', Config.ENTITIES_PATH, 'card_template_1.png')
+            if love.filesystem.getInfo(path) then
+                self.cardTemplate = love.graphics.newImage(path)
+            end
+        end
 		love.graphics.push()
 		love.graphics.translate(cx, cy)
 		local tiltShear = (self.drag.tiltShear or 0)
@@ -973,14 +1012,15 @@ function HandUI:draw()
         local defAnim = anim.id and self.deck:getCardDef(anim.id) or nil
         local cw, ch = Config.DECK.CARD_WIDTH, Config.DECK.CARD_HEIGHT
         local cx = anim.startX
-        local cy = anim.startY - (anim.slide or 180) * easeValue(math.min(1, anim.t or 0), 'smoothstep')
+        local cy = anim.startY
+        local lift = (anim.slide or 120) * easeValue(math.min(1, anim.t or 0), 'smoothstep')
+        cy = cy - lift
         local rot = anim.rot or 0
         local alpha = 1 - easeValue(math.min(1, anim.t or 0), 'smoothstep')
         if not self.cardTemplate then
             local path = string.format('%s/%s', Config.ENTITIES_PATH, 'card_template_1.png')
             if love.filesystem.getInfo(path) then
                 self.cardTemplate = love.graphics.newImage(path)
-                self.cardTemplate:setFilter('nearest', 'nearest')
             end
         end
         love.graphics.push()

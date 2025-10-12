@@ -39,6 +39,7 @@ function WaveManager:new(stageId, enemySpawnManager)
     self.activeWaves = {}
     self.nextWaveIndex = 1
     self.intermissionRemaining = 0
+    self.pendingShieldClear = {}
 
     return self
 end
@@ -111,13 +112,14 @@ function WaveManager:startNextWave()
     local absSchedule = computeAbsoluteSchedule(waveDef.schedule or {})
     local spawners = buildSpawnersFromSchedule(absSchedule, self.baseMultipliers)
 
-    table.insert(self.activeWaves, {
+    local wave = {
         index = idx,
         name = waveDef.name or ('Wave ' .. tostring(idx)),
         elapsed = 0,
         spawners = spawners,
         done = false
-    })
+    }
+    table.insert(self.activeWaves, wave)
 
     self.nextWaveIndex = idx + 1
     return true
@@ -151,9 +153,34 @@ function WaveManager:update(dt)
             if #self.activeWaves == 0 and (self.nextWaveIndex <= #(self.stage.waves or {})) then
                 self.intermissionRemaining = math.max(0, self.stage.intermissionSeconds or 0)
                 -- Clear any wave-limited core shield when a wave fully ends and no waves are active
+                -- wave ended; clear shields that were applied specifically for that wave once enemies are gone
                 if self.enemySpawnManager and self.enemySpawnManager.clearWaveShield then
-                    self.enemySpawnManager:clearWaveShield()
+                    local shouldDefer = false
+                    if self.enemySpawnManager.getEnemies then
+                        local enemies = self.enemySpawnManager:getEnemies()
+                        shouldDefer = (enemies ~= nil and #enemies > 0)
+                    end
+                    if shouldDefer then
+                        self.pendingShieldClear[#self.pendingShieldClear + 1] = wave.index
+                    else
+                        self.enemySpawnManager:clearWaveShield(wave.index)
+                    end
                 end
+            end
+        end
+    end
+
+    if self.enemySpawnManager and self.enemySpawnManager.clearWaveShield then
+        if self.pendingShieldClear and #self.pendingShieldClear > 0 then
+            local enemies = nil
+            if self.enemySpawnManager.getEnemies then
+                enemies = self.enemySpawnManager:getEnemies()
+            end
+            if enemies == nil or #enemies == 0 then
+                for i = 1, #self.pendingShieldClear do
+                    self.enemySpawnManager:clearWaveShield(self.pendingShieldClear[i])
+                end
+                self.pendingShieldClear = {}
             end
         end
     end
@@ -185,6 +212,12 @@ end
 
 function WaveManager:getNextWaveIndex()
     return self.nextWaveIndex or 1
+end
+
+function WaveManager:getCurrentWaveIndex()
+    if not self.activeWaves or #self.activeWaves == 0 then return nil end
+    local wave = self.activeWaves[#self.activeWaves]
+    return wave and wave.index or nil
 end
 
 return WaveManager

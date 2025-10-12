@@ -48,7 +48,6 @@ local function getProjectileSprite(cache)
         local path = string.format('%s/%s', Config.ENTITIES_PATH, 'projectile_arrow_1.png')
         if love.filesystem.getInfo(path) then
             cache.projectileSprite = love.graphics.newImage(path)
-            cache.projectileSprite:setFilter('nearest', 'nearest')
         end
     end
     return cache.projectileSprite
@@ -59,7 +58,6 @@ local function getFireProjectileSprite(cache)
         local path = string.format('%s/%s', Config.ENTITIES_PATH, 'projectile_fire_1.png')
         if love.filesystem.getInfo(path) then
             cache.projectileFireSprite = love.graphics.newImage(path)
-            cache.projectileFireSprite:setFilter('nearest', 'nearest')
         end
     end
     return cache.projectileFireSprite

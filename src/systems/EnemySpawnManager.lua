@@ -16,6 +16,7 @@ function EnemySpawnManager:new(mapData)
     self.timeSinceLastSpawn = 0
     self.coreHealth = Config.GAME.CORE_HEALTH
     self.coreShieldHp = 0
+    self.coreShieldWaveTag = nil
     self.coreShieldVisual = {
         active = false,
         alpha = 0,
@@ -43,10 +44,16 @@ function EnemySpawnManager:new(mapData)
     return self
 end
 -- Add temporary shield to Vigil Core (stacks)
-function EnemySpawnManager:addCoreShield(amount)
+function EnemySpawnManager:addCoreShield(amount, waveTag)
     local add = math.max(0, tonumber(amount) or 0)
     if add <= 0 then return end
     self.coreShieldHp = (self.coreShieldHp or 0) + add
+    if waveTag ~= nil then
+        self.coreShieldWaveTag = waveTag
+    elseif self.coreShieldWaveTag == nil then
+        -- default to zero to explicitly mark it as wave-agnostic if no tag supplied
+        self.coreShieldWaveTag = false
+    end
     local vis = self.coreShieldVisual
     if vis then
         vis.active = true
@@ -61,8 +68,21 @@ function EnemySpawnManager:getCoreShield()
     return self.coreShieldHp or 0
 end
 
-function EnemySpawnManager:clearWaveShield()
+function EnemySpawnManager:clearWaveShield(waveTag)
+    local shouldClear = false
+    if waveTag == nil then
+        shouldClear = true
+    elseif self.coreShieldWaveTag == nil then
+        -- no tag recorded, treat as belonging to the requested wave
+        shouldClear = true
+    else
+        shouldClear = (self.coreShieldWaveTag == waveTag)
+    end
+
+    if not shouldClear then return end
+
     self.coreShieldHp = 0
+    self.coreShieldWaveTag = nil
     if self.coreShieldVisual then
         self.coreShieldVisual.active = false
         self.coreShieldVisual.alpha = 0
@@ -104,7 +124,6 @@ function EnemySpawnManager:getSpriteFor(enemyId)
     end
     if love.filesystem.getInfo(path) then
         local img = love.graphics.newImage(path)
-        img:setFilter('nearest', 'nearest')
         self.enemySprites[id] = img
         return img
     end

@@ -309,28 +309,24 @@ function TowerManager:draw(gridX, gridY, tileSize)
         local path = string.format('%s/%s', Config.ENTITIES_PATH, 'tower_base_1.png')
         if love.filesystem.getInfo(path) then
             self.towerBaseSprite = love.graphics.newImage(path)
-            self.towerBaseSprite:setFilter('nearest', 'nearest')
         end
     end
     if not self.towerCrossbowSprite then
         local path = string.format('%s/%s', Config.ENTITIES_PATH, 'tower_crossbow_1.png')
         if love.filesystem.getInfo(path) then
             self.towerCrossbowSprite = love.graphics.newImage(path)
-            self.towerCrossbowSprite:setFilter('nearest', 'nearest')
         end
     end
     if not self.towerFireSprite then
         local path = string.format('%s/%s', Config.ENTITIES_PATH, 'tower_fire_1.png')
         if love.filesystem.getInfo(path) then
             self.towerFireSprite = love.graphics.newImage(path)
-            self.towerFireSprite:setFilter('nearest', 'nearest')
         end
     end
     if not self.fireParticleSprite then
         local path = string.format('%s/%s', Config.ENTITIES_PATH, 'projectile_fire_1.png')
         if love.filesystem.getInfo(path) then
             self.fireParticleSprite = love.graphics.newImage(path)
-            self.fireParticleSprite:setFilter('nearest', 'nearest')
         end
     end
 

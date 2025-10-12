@@ -53,7 +53,6 @@ local function getImage(imageName)
         end
 
         local image = love.graphics.newImage(path)
-        image:setFilter('nearest', 'nearest')
         IMAGE_CACHE[imageName] = image
     end
 
