@@ -36,7 +36,8 @@ Config.UI = {
     FONT_SIZE = 16,
     BUTTON_HEIGHT = 32,
     PANEL_PADDING = 8,
-    SHOW_CORE_HEALTH = false
+    SHOW_CORE_HEALTH = true,
+    SHOW_CORE_HEALTH_ABOVE_CORE = false
 }
 
 -- Game Settings
@@ -152,6 +153,23 @@ Config.DECK = {
     DRAG_CLAMP_Y = 540,
     DRAG_CLAMP_Y_FRAC = 0.75,
     CARD_LOCK_TWEEN_DURATION = 0.12,
+    DRAG_LOCK_SOFT_FOLLOW = {
+        ENABLED = true,
+        FACTOR_X = 0.1,
+        FACTOR_Y = 0.06,
+        MAX_OFFSET_X = 22,
+        MAX_OFFSET_Y = 14
+    },
+    DRAG_TILT = {
+        ENABLED = true,
+        SENSITIVITY = 0.0035,
+        MAX_SHEAR = 0.28,
+        FOLLOW_SPEED = 14,
+        SCALE_COMP = 0.12,
+        ROTATION_SCALE = 0.65,
+        MAX_ROT = 0.18,
+        MIN_SCALE_Y = 0.78
+    },
     ARROW = {
         COLOR = {1, 1, 1, 0.85},
         WIDTH = 3,

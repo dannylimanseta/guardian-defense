@@ -155,8 +155,8 @@ function GridMap:draw()
         if pass == 4 then
             self.towerManager:draw(self.gridX, self.gridY, self.tileSize)
             self.enemySpawnManager:draw(self.gridX, self.gridY, self.tileSize)
-            -- Draw minimal core HP bar above the core (use TMX object center if available)
-            if self.specialTiles and self.specialTiles.core then
+            -- Optional in-world core HP bar (disabled by default in favor of HUD)
+            if (Config.UI and Config.UI.SHOW_CORE_HEALTH_ABOVE_CORE) and self.specialTiles and self.specialTiles.core then
                 local coreX, coreY
                 if self.specialTiles.core.pcx and self.specialTiles.core.pcy then
                     coreX = self.gridX + self.specialTiles.core.pcx

@@ -196,14 +196,9 @@ function love.resize(width, height)
 end
 
 function Game:drawHUD()
-    -- Draw a small panel with core health in the top-left of the logical canvas
+    -- Draw a compact numeric core health at the top-right of the logical canvas
     local padding = Config.UI.PANEL_PADDING or 8
-    local panelWidth = 160
-    local panelHeight = 48
-    local x = 8
     local y = 8
-
-    Theme.drawPanel(x, y, panelWidth, panelHeight)
 
     local coreHealth = 0
     local shield = 0
@@ -214,14 +209,27 @@ function Game:drawHUD()
         end
     end
     local maxHealth = Config.GAME.CORE_HEALTH
-    local label = "Vigil Core"
+
+    -- Numeric only, e.g., "10/10"; append shield if present
     local text
     if (shield or 0) > 0 then
-        text = string.format("%s: %d/%d  [Shield %d]", label, coreHealth, maxHealth, shield)
+        text = string.format("%d/%d  [Shield %d]", coreHealth, maxHealth, shield)
     else
-        text = string.format("%s: %d/%d", label, coreHealth, maxHealth)
+        text = string.format("%d/%d", coreHealth, maxHealth)
     end
-    Theme.drawText(text, x + padding, y + padding, Theme.FONTS.MEDIUM, Theme.COLORS.WHITE)
+
+    local font = Theme.FONTS.MEDIUM
+    local textW = font:getWidth(text)
+    local textH = font:getHeight()
+    local panelWidth = textW + padding * 2
+    local panelHeight = textH + padding * 2
+    local x = (Config.LOGICAL_WIDTH or 0) - panelWidth - 8
+
+    Theme.drawPanel(x, y, panelWidth, panelHeight)
+    -- Right-align text inside the panel
+    local tx = x + panelWidth - padding - textW
+    local ty = y + padding
+    Theme.drawText(text, tx, ty, font, Theme.COLORS.WHITE)
 end
 
 return Game

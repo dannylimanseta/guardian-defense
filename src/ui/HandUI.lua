@@ -6,6 +6,8 @@ local Theme = require 'src/theme'
 local HandUI = {}
 HandUI.__index = HandUI
 
+local FX_CARD_GLOW_PATH = 'assets/images/effects/fx_card_glow.png'
+
 function HandUI:new(deckManager)
     local self = setmetatable({}, HandUI)
     self.deck = deckManager
@@ -19,6 +21,8 @@ function HandUI:new(deckManager)
         anchorY = 0,
         mx = 0,
         my = 0,
+        prevMX = 0,
+        prevMY = 0,
         locked = false,
         lockTweenT = 1,
         lockStartX = 0,
@@ -29,7 +33,13 @@ function HandUI:new(deckManager)
         -- smooth follow to avoid snap on drag start
         smoothX = nil,
         smoothY = nil,
-        followSpeed = 16
+        followSpeed = 16,
+        tiltShear = 0,
+        tiltRot = 0,
+        tiltTargetShear = 0,
+        tiltTargetRot = 0,
+        tiltScaleY = 1,
+        tiltTargetScaleY = 1
     }
     self.arrowState = {
         side = 1, -- 1 or -1 for curve side
@@ -49,6 +59,9 @@ function HandUI:new(deckManager)
     self.handKeys = {}
     self.indexToKey = {}
     self.nextKeyId = 1
+    self.fxCardGlow = nil
+    self.fxCardGlowWarned = false
+    self.time = 0
     return self
 end
 
@@ -74,6 +87,24 @@ local function shallowCopyList(src)
     local out = {}
     for i = 1, #src do out[i] = src[i] end
     return out
+end
+
+local function clamp(value, minValue, maxValue)
+    if value < minValue then return minValue end
+    if value > maxValue then return maxValue end
+    return value
+end
+
+local function resetDragTilt(self)
+    if not self or not self.drag then return end
+    if self.drag then
+        self.drag.tiltTargetShear = 0
+        self.drag.tiltTargetRot = 0
+        self.drag.tiltTargetScaleY = 1
+        self.drag.tiltShear = 0
+        self.drag.tiltRot = 0
+        self.drag.tiltScaleY = 1
+    end
 end
 
 -- Simple word-wrapping helper returning a list of lines that fit within maxWidth
@@ -157,6 +188,43 @@ local function loadCardArtForId(cardId)
 	end
 	cardArtCache[cardId] = false
 	return nil
+end
+
+local function ensureCardGlow(self)
+	if self.fxCardGlow == false then return nil end
+	if not self.fxCardGlow then
+		local ok, img = pcall(love.graphics.newImage, FX_CARD_GLOW_PATH)
+		if ok and img then
+			img:setFilter('linear', 'linear')
+			self.fxCardGlow = img
+		else
+			self.fxCardGlow = false
+			return nil
+		end
+	end
+	return self.fxCardGlow
+end
+
+local function computeDragGlow(self, def, cardIndex, cw, ch)
+	if not self.drag or not self.drag.active then return nil end
+	if self.drag.cardIndex ~= cardIndex then return nil end
+	if self.drag.locked ~= true then return nil end
+	if def and def.requiresTarget ~= false then return nil end
+	local glowImg = ensureCardGlow(self)
+	if not glowImg then return nil end
+	local pulseSpeed = (Config.DECK and Config.DECK.GLOW_PULSE_SPEED) or 4.2
+	local baseAlpha = (Config.DECK and Config.DECK.GLOW_ALPHA_BASE) or 0.85
+	local pulseAlpha = (Config.DECK and Config.DECK.GLOW_ALPHA_PULSE) or 0.35
+	local pulse = math.sin((self.time or 0) * pulseSpeed)
+	local alpha = baseAlpha + pulseAlpha * ((pulse + 1) * 0.5)
+	local widthScale = (Config.DECK and Config.DECK.GLOW_WIDTH_SCALE) or 1.8
+	local heightScale = (Config.DECK and Config.DECK.GLOW_HEIGHT_SCALE) or 1.55
+	local gw, gh = glowImg:getWidth(), glowImg:getHeight()
+	local targetW = cw * widthScale
+	local targetH = ch * heightScale
+	local scale = math.min(targetW / gw, targetH / gh)
+	local glowColor = (Config.DECK and Config.DECK.GLOW_COLOR) or {0.35, 0.78, 1.0}
+	return glowImg, alpha, scale, glowColor
 end
 
 -- Shared cardface text render to keep dragged and undragged layouts identical
@@ -401,6 +469,9 @@ function HandUI:mousepressed(x, y, button)
             self.drag.anchorY = cy
             self.drag.mx = x
             self.drag.my = y
+            self.drag.prevMX = x
+            self.drag.prevMY = y
+            resetDragTilt(self)
             -- initialize smooth follower at current card center
             self.drag.smoothX = cx
             self.drag.smoothY = cy
@@ -414,10 +485,34 @@ end
 
 function HandUI:mousemoved(x, y, dx, dy)
 	self.mouseX, self.mouseY = x, y
-    if self.drag.active then
-        self.drag.mx = x
-        self.drag.my = y
-        local def = self.deck:getCardDef(self.drag.cardId)
+	if self.drag.active then
+		self.drag.prevMX = self.drag.mx
+		self.drag.prevMY = self.drag.my
+		self.drag.mx = x
+		self.drag.my = y
+		local def = self.deck:getCardDef(self.drag.cardId)
+        local dt = (love.timer and love.timer.getDelta and love.timer.getDelta()) or 0
+        local tiltCfg = Config.DECK.DRAG_TILT or {}
+        if tiltCfg.ENABLED ~= false then
+            local dx = (self.drag.mx - self.drag.prevMX)
+            local sensitivity = tiltCfg.SENSITIVITY or 0.0035
+            local rotScale = tiltCfg.ROTATION_SCALE or 0.65
+            local maxShear = tiltCfg.MAX_SHEAR or 0.28
+            local targetShear = clamp(dx * sensitivity, -maxShear, maxShear)
+            local maxRot = (tiltCfg.MAX_ROT or maxShear) or maxShear
+            local targetRot = clamp(dx * sensitivity * rotScale, -maxRot, maxRot)
+            self.drag.tiltTargetShear = targetShear
+            self.drag.tiltTargetRot = targetRot
+            local minScaleY = tiltCfg.MIN_SCALE_Y or 0.78
+            local scaleComp = tiltCfg.SCALE_COMP or 0.12
+            local targetScaleY = clamp(1 - math.abs(targetShear) * scaleComp, minScaleY, 1)
+            self.drag.tiltTargetScaleY = targetScaleY
+            local follow = tiltCfg.FOLLOW_SPEED or 14
+            local lerp = dt > 0 and math.min(1, follow * dt) or 1
+            self.drag.tiltShear = self.drag.tiltShear + (self.drag.tiltTargetShear - self.drag.tiltShear) * lerp
+            self.drag.tiltRot = self.drag.tiltRot + (self.drag.tiltTargetRot - self.drag.tiltRot) * lerp
+            self.drag.tiltScaleY = self.drag.tiltScaleY + (self.drag.tiltTargetScaleY - self.drag.tiltScaleY) * lerp
+        end
         local isTargeting = not def or (def.requiresTarget ~= false)
         if isTargeting then
             -- determine target side based on relative x position
@@ -470,6 +565,7 @@ function HandUI:mousereleased(x, y, button)
             -- allowed: above threshold
         else
             -- below threshold: cancel
+            resetDragTilt(self)
             self.drag.active = false
             return false
         end
@@ -481,6 +577,7 @@ function HandUI:mousereleased(x, y, button)
         dropX = x,
         dropY = y
     }
+    resetDragTilt(self)
     self.drag.active = false
     return info
 end
@@ -548,7 +645,7 @@ function HandUI:draw()
             local lift = fan.HOVER_LIFT or 22
             cy = cy - lift
         end
-        local cw, ch = Config.DECK.CARD_WIDTH, Config.DECK.CARD_HEIGHT
+		local cw, ch = Config.DECK.CARD_WIDTH, Config.DECK.CARD_HEIGHT
 		-- lazy-load template
 		if not self.cardTemplate then
 			local path = string.format('%s/%s', Config.ENTITIES_PATH, 'card_template_1.png')
@@ -558,24 +655,35 @@ function HandUI:draw()
 			end
 		end
 		love.graphics.push()
-		love.graphics.translate(cx, cy)
-		love.graphics.rotate(rot)
-		local cw2, ch2 = cw * 0.5, ch * 0.5
-		-- card background / template
-		if self.cardTemplate then
-			love.graphics.setColor(1, 1, 1, 1)
-			local iw = self.cardTemplate:getWidth()
-			local ih = self.cardTemplate:getHeight()
-			local scale = Config.DECK.CARD_TEMPLATE_SCALE or 0.7
-			local drawX = -cw2 + (cw - iw * scale) / 2
-			local drawY = -ch2 + (ch - ih * scale) / 2
-			love.graphics.draw(self.cardTemplate, drawX, drawY, 0, scale, scale)
-		else
-			love.graphics.setColor(0.15, 0.15, 0.2, 0.95)
-			love.graphics.rectangle('fill', -cw2, -ch2, cw, ch, 6, 6)
-			love.graphics.setColor(1, 1, 1, 1)
-			love.graphics.rectangle('line', -cw2, -ch2, cw, ch, 6, 6)
-		end
+        love.graphics.translate(cx, cy)
+        love.graphics.rotate(rot)
+        local cw2, ch2 = cw * 0.5, ch * 0.5
+
+        local glowImg, glowAlpha, glowScale = computeDragGlow(self, def, i, cw, ch)
+        if glowImg then
+            local gw, gh = glowImg:getWidth(), glowImg:getHeight()
+            love.graphics.setBlendMode('add')
+            love.graphics.setColor(1, 1, 1, glowAlpha)
+            love.graphics.draw(glowImg, 0, 0, 0, glowScale, glowScale, gw * 0.5, gh * 0.5)
+            love.graphics.setBlendMode('alpha')
+            love.graphics.setColor(1, 1, 1, 1)
+        end
+
+        -- card background / template
+        if self.cardTemplate then
+            love.graphics.setColor(1, 1, 1, 1)
+            local iw = self.cardTemplate:getWidth()
+            local ih = self.cardTemplate:getHeight()
+            local scale = Config.DECK.CARD_TEMPLATE_SCALE or 0.7
+            local drawX = -cw2 + (cw - iw * scale) / 2
+            local drawY = -ch2 + (ch - ih * scale) / 2
+            love.graphics.draw(self.cardTemplate, drawX, drawY, 0, scale, scale)
+        else
+            love.graphics.setColor(0.15, 0.15, 0.2, 1)
+            love.graphics.rectangle('fill', -cw2, -ch2, cw, ch, 6, 6)
+            love.graphics.setColor(1, 1, 1, 1)
+            love.graphics.rectangle('line', -cw2, -ch2, cw, ch, 6, 6)
+        end
 		-- Left-aligned layout: cost top-right, title then LV below, then description
 		-- derive bounds consistently with dragged version
 		local tmplScale = Config.DECK.CARD_TEMPLATE_SCALE or 0.7
@@ -640,13 +748,33 @@ function HandUI:draw()
 				self.drag.anchorY = y + ch / 2
 			end
 		end
-		if self.drag.locked then
-			local t = math.min(1, self.drag.lockTweenT or 1)
-			local u = t * t * (3 - 2 * t)
-			local lx = self.drag.lockStartX + (self.drag.lockTargetX - self.drag.lockStartX) * u
-			local ly = self.drag.lockStartY + (self.drag.lockTargetY - self.drag.lockStartY) * u
-			x = lx
-			y = ly
+        if self.drag.locked then
+            local cfg = Config.DECK.DRAG_LOCK_SOFT_FOLLOW or {}
+            local softEnabled = cfg.ENABLED ~= false
+            local targetShiftX = 0
+            local targetShiftY = 0
+            if softEnabled then
+                local factorX = cfg.FACTOR_X or 0.1
+                local factorY = cfg.FACTOR_Y or 0.06
+                targetShiftX = (self.drag.mx - (self.drag.anchorX or 0)) * factorX
+                targetShiftY = (self.drag.my - (self.drag.anchorY or 0)) * factorY
+                local clampX = cfg.MAX_OFFSET_X or 22
+                local clampY = cfg.MAX_OFFSET_Y or 14
+                if clampX and clampX > 0 then
+                    if targetShiftX > clampX then targetShiftX = clampX end
+                    if targetShiftX < -clampX then targetShiftX = -clampX end
+                end
+                if clampY and clampY > 0 then
+                    if targetShiftY > clampY then targetShiftY = clampY end
+                    if targetShiftY < -clampY then targetShiftY = -clampY end
+                end
+            end
+            local t = math.min(1, self.drag.lockTweenT or 1)
+            local u = t * t * (3 - 2 * t)
+            local lx = self.drag.lockStartX + (self.drag.lockTargetX - self.drag.lockStartX) * u
+            local ly = self.drag.lockStartY + (self.drag.lockTargetY - self.drag.lockStartY) * u
+            x = lx + targetShiftX
+            y = ly + targetShiftY
 		end
 		-- draw axis-aligned dragged card at (x,y)
 		local cx, cy = x + cw * 0.5, y + ch * 0.5
@@ -660,8 +788,33 @@ function HandUI:draw()
 		end
 		love.graphics.push()
 		love.graphics.translate(cx, cy)
-		love.graphics.rotate(0)
+		local tiltShear = (self.drag.tiltShear or 0)
+		local tiltRot = (self.drag.tiltRot or 0)
+		local tiltScaleY = (self.drag.tiltScaleY or 1)
+		if love.graphics.shear then
+			love.graphics.shear(tiltShear, 0)
+		else
+			love.graphics.rotate(tiltShear * 0.25)
+		end
+		love.graphics.rotate(tiltRot)
+		love.graphics.scale(1, tiltScaleY)
 		local cw2, ch2 = cw * 0.5, ch * 0.5
+		local glowImg, glowAlpha, glowScale, glowColor = computeDragGlow(self, def, i, cw, ch)
+		if glowImg then
+			local gw, gh = glowImg:getWidth(), glowImg:getHeight()
+			love.graphics.setBlendMode('add')
+			local cr, cg, cb = 1, 1, 1
+			if glowColor then
+				cr, cg, cb = glowColor[1], glowColor[2], glowColor[3]
+			end
+			love.graphics.setColor(cr, cg, cb, glowAlpha * 0.55)
+			local drawScale = glowScale * 1.1
+			local offsetY = 0
+			love.graphics.draw(glowImg, 0, offsetY, 0, drawScale * 1.55, drawScale * 1.55, gw * 0.5, gh * 0.5)
+			love.graphics.draw(glowImg, 0, offsetY, 0, drawScale, drawScale, gw * 0.5, gh * 0.5)
+			love.graphics.setBlendMode('alpha')
+			love.graphics.setColor(1, 1, 1, 1)
+		end
 		if self.cardTemplate then
 			love.graphics.setColor(1, 1, 1, 1)
 			local iw = self.cardTemplate:getWidth()
@@ -669,12 +822,7 @@ function HandUI:draw()
 			local scale = Config.DECK.CARD_TEMPLATE_SCALE or 0.7
 			local drawX = -cw2 + (cw - iw * scale) / 2
 			local drawY = -ch2 + (ch - ih * scale) / 2
-			local def = self.deck:getCardDef(id)
-			local isTargeting = not def or (def.requiresTarget ~= false)
-			local useGlow = (not isTargeting) and (self.drag.locked == true)
-			-- Always draw the base card template first
 			love.graphics.draw(self.cardTemplate, drawX, drawY, 0, scale, scale)
-			-- No glow overlay (moonshine removed per request)
 		else
 			love.graphics.setColor(0.15, 0.15, 0.2, 0.95)
 			love.graphics.rectangle('fill', -cw2, -ch2, cw, ch, 6, 6)
@@ -875,6 +1023,30 @@ function HandUI:update(dt)
             self.arrowState.tweenT = 1
         else
             self.arrowState.tweenT = math.min(1, self.arrowState.tweenT + dt / dur)
+        end
+    end
+    -- update drag tilt easing
+    local tiltCfg = Config.DECK.DRAG_TILT or {}
+    if self.drag then
+        local follow = tiltCfg.FOLLOW_SPEED or 14
+        local lerp = math.min(1, math.max(0, follow * dt))
+        if self.drag.active and tiltCfg.ENABLED ~= false then
+            -- keep using existing targets
+        else
+            if self.drag.tiltTargetShear ~= 0 or self.drag.tiltTargetRot ~= 0 or self.drag.tiltTargetScaleY ~= 1 then
+                self.drag.tiltTargetShear = 0
+                self.drag.tiltTargetRot = 0
+                self.drag.tiltTargetScaleY = 1
+            end
+        end
+        if lerp > 0 then
+            self.drag.tiltShear = self.drag.tiltShear + (self.drag.tiltTargetShear - self.drag.tiltShear) * lerp
+            self.drag.tiltRot = self.drag.tiltRot + (self.drag.tiltTargetRot - self.drag.tiltRot) * lerp
+            self.drag.tiltScaleY = self.drag.tiltScaleY + (self.drag.tiltTargetScaleY - self.drag.tiltScaleY) * lerp
+        else
+            self.drag.tiltShear = self.drag.tiltTargetShear
+            self.drag.tiltRot = self.drag.tiltTargetRot
+            self.drag.tiltScaleY = self.drag.tiltTargetScaleY
         end
     end
     -- advance lock tween if active
