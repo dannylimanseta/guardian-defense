@@ -217,16 +217,24 @@ Config.DECK = {
         WIDTH = 3,
         HEAD_SIZE = 10,
         CURVE_STRENGTH = 0.28, -- stronger curvature factor relative to distance
-        FLIP_TWEEN_DURATION = 0.12 -- seconds to animate side flip
+        FLIP_TWEEN_DURATION = 0.12, -- seconds to animate side flip
+        MIN_DIST_FOR_FULL_CURVE = 480, -- below this distance, curve is dramatically reduced
+        MAX_DIST_FOR_FULL_CURVE = 500, -- above this distance, curve is at full strength
+        MIN_CURVE_FACTOR = 0.01 -- minimum curve intensity at very short distances (2% of normal)
     },
     -- Fan layout settings for the hand (Slay the Spire-style)
     FAN = {
-        RADIUS = 520,              -- Base radius of the fan arc (pixels)
-        MAX_SPREAD_DEG = 80,       -- Max total spread angle across the hand
-        MIN_SPREAD_DEG = 16,       -- Minimum total spread when very few cards
-        PER_CARD_SPREAD_DEG = 14,  -- Increment of spread per additional card
-        ROTATION_SCALE = 0.7,      -- 1 = tangent to the arc, <1 reduces tilt
-        BASELINE_OFFSET_Y = 32,    -- Offset (pixels) to nudge baseline up/down (shifted +20px)
+        RADIUS = 650,              -- Preferred radius of the fan arc (pixels) - larger for smoother curve
+        MIN_RADIUS = 500,          -- Smallest radius allowed when tightening the fan
+        MAX_RADIUS = 680,          -- Maximum radius allowed (defaults to RADIUS)
+        EDGE_GUARD = 80,           -- Horizontal padding to keep cards away from screen edge
+        EXTRA_WIDTH_PADDING = 26,  -- Additional half-width padding for rotated cards
+        EXTRA_HEIGHT_PADDING = 14, -- Additional half-height padding for rotated cards
+        MAX_SPREAD_DEG = 68,       -- Max total spread angle across the hand - reduced for gentler curve
+        MIN_SPREAD_DEG = 18,       -- Minimum total spread when very few cards
+        PER_CARD_SPREAD_DEG = 8,   -- Increment of spread per additional card - smaller increments
+        ROTATION_SCALE = 0.65,     -- 1 = tangent to the arc, <1 reduces tilt
+        BASELINE_OFFSET_Y = -8,    -- Offset (pixels) to nudge baseline up/down (negative lifts cards)
         HOVER_LIFT = 22            -- How much a hovered/dragged card lifts visually
     }
 }

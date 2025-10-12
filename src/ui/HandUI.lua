@@ -53,8 +53,8 @@ function HandUI:new(deckManager)
     -- layout tweening and play-out animation state
     self.cardStates = {} -- [key] = { x,y,rot, fromX,fromY,fromRot, toX,toY,toRot, t, dur, alpha }
     self.playAnimations = {} -- [key] = { id, startX,startY,rot, t, dur, slide }
-    self.layoutTweenDur = 0.2
-    self.layoutEase = 'smoothstep'
+    self.layoutTweenDur = 0.42
+    self.layoutEase = 'smootherstep'
     self.lastHandIds = {}
     self.handKeys = {}
     self.indexToKey = {}
@@ -79,6 +79,8 @@ end
 local function easeValue(u, mode)
     if mode == 'smoothstep' then
         return u * u * (3 - 2 * u)
+    elseif mode == 'smootherstep' then
+        return u * u * u * (u * (u * 6 - 15) + 10)
     end
     return u
 end
@@ -343,16 +345,104 @@ function HandUI:startLayoutTween()
     self.lastHandIds = shallowCopyList(hand)
 end
 
+function HandUI:computeFanLayout(handCount, cw, ch, fanCfg, screenWidth)
+	local count = handCount or 0
+	local minSpread = fanCfg.minSpreadDeg or 0
+	local maxSpread = fanCfg.maxSpreadDeg or minSpread
+	local perCard = fanCfg.perCardSpreadDeg or 0
+	local spreadDeg = 0
+	if count > 1 then
+		spreadDeg = minSpread + (count - 2) * perCard
+		if spreadDeg < minSpread then spreadDeg = minSpread end
+		if spreadDeg > maxSpread then spreadDeg = maxSpread end
+	end
+	local baseRadius = fanCfg.radius or fanCfg.maxRadius or fanCfg.minRadius or 520
+	local minRadius = fanCfg.minRadius or baseRadius
+	local maxRadius = fanCfg.maxRadius or baseRadius
+	local radius = math.max(minRadius, math.min(maxRadius, baseRadius))
+	if count <= 1 then
+		return spreadDeg, radius
+	end
+	local halfCardW = cw * 0.5 + (fanCfg.extraWidthPadding or 0)
+	local halfCardH = ch * 0.5 + (fanCfg.extraHeightPadding or 0)
+	local guard = fanCfg.edgeGuard or 0
+	local usableWidth = math.max(0, (screenWidth or (Config.LOGICAL_WIDTH)) - guard * 2)
+
+	local function estimateWidth(currentSpread, currentRadius)
+		local minX = math.huge
+		local maxX = -math.huge
+		for i = 1, count do
+			local t = (i - 1) / (count - 1)
+			local angleDeg = -currentSpread * 0.5 + t * currentSpread
+			local a = math.rad(angleDeg)
+			local sinA = math.sin(a)
+			local cosA = math.cos(a)
+			local center = currentRadius * sinA
+			local projected = math.abs(halfCardW * cosA) + math.abs(halfCardH * sinA)
+			local left = center - projected
+			local right = center + projected
+			if left < minX then minX = left end
+			if right > maxX then maxX = right end
+		end
+		if minX == math.huge then
+			return 0
+		end
+		return maxX - minX
+	end
+
+	local width = estimateWidth(spreadDeg, radius)
+	if usableWidth > 0 and width > usableWidth then
+		local ratio = usableWidth / width
+		local targetRadius = radius * ratio
+		if targetRadius < radius then
+			radius = math.max(minRadius, targetRadius)
+			width = estimateWidth(spreadDeg, radius)
+		end
+	end
+
+	if usableWidth > 0 and width > usableWidth then
+		local ratio = usableWidth / width
+		local targetSpread = spreadDeg * ratio
+		if targetSpread < spreadDeg then
+			spreadDeg = math.max(minSpread, targetSpread)
+			width = estimateWidth(spreadDeg, radius)
+		end
+	end
+
+	local attempts = 0
+	while usableWidth > 0 and width > usableWidth and attempts < 8 do
+		attempts = attempts + 1
+		if radius > minRadius then
+			radius = math.max(minRadius, radius - 6)
+		end
+		if spreadDeg > minSpread then
+			spreadDeg = math.max(minSpread, spreadDeg - 3)
+		end
+		width = estimateWidth(spreadDeg, radius)
+		if radius == minRadius and spreadDeg == minSpread then
+			break
+		end
+	end
+
+	return spreadDeg, radius
+end
+
 local function fanParams()
 	local fan = (Config.DECK and Config.DECK.FAN) or {}
-	local radius = fan.RADIUS or 520
-	local maxSpreadDeg = fan.MAX_SPREAD_DEG or 80
-	local minSpreadDeg = fan.MIN_SPREAD_DEG or 16
-	local perCardSpreadDeg = fan.PER_CARD_SPREAD_DEG or 14
-	local rotationScale = fan.ROTATION_SCALE or 1
-	local baselineOffsetY = fan.BASELINE_OFFSET_Y or -8
-	local hoverLift = fan.HOVER_LIFT or 22
-	return radius, maxSpreadDeg, minSpreadDeg, perCardSpreadDeg, rotationScale, baselineOffsetY, hoverLift
+	return {
+		radius = fan.RADIUS or 520,
+		minRadius = fan.MIN_RADIUS or fan.RADIUS or 520,
+		maxRadius = fan.MAX_RADIUS or fan.RADIUS or 520,
+		edgeGuard = fan.EDGE_GUARD or 48,
+		extraWidthPadding = fan.EXTRA_WIDTH_PADDING or 0,
+		extraHeightPadding = fan.EXTRA_HEIGHT_PADDING or 0,
+		maxSpreadDeg = fan.MAX_SPREAD_DEG or 80,
+		minSpreadDeg = fan.MIN_SPREAD_DEG or 16,
+		perCardSpreadDeg = fan.PER_CARD_SPREAD_DEG or 14,
+		rotationScale = fan.ROTATION_SCALE or 1,
+		baselineOffsetY = fan.BASELINE_OFFSET_Y or -8,
+		hoverLift = fan.HOVER_LIFT or 22
+	}
 end
 
 function HandUI:getCardTransform(i, handCount, isHovered)
@@ -361,15 +451,10 @@ function HandUI:getCardTransform(i, handCount, isHovered)
 	local cw = Config.DECK.CARD_WIDTH
 	local ch = Config.DECK.CARD_HEIGHT
 	local margin = Config.DECK.HAND_MARGIN
-	local radius, maxSpreadDeg, minSpreadDeg, perCardSpreadDeg, rotationScale, baselineOffsetY, hoverLift = fanParams()
+	local fanCfg = fanParams()
 	local centerX = w * 0.5
-	local baselineY = h - margin - ch * 0.5 + (baselineOffsetY or 0)
-	local spreadDeg = 0
-	if handCount and handCount > 1 then
-		spreadDeg = minSpreadDeg + (handCount - 2) * perCardSpreadDeg
-		if spreadDeg < minSpreadDeg then spreadDeg = minSpreadDeg end
-		if spreadDeg > maxSpreadDeg then spreadDeg = maxSpreadDeg end
-	end
+	local baselineY = h - margin - ch * 0.5 + (fanCfg.baselineOffsetY or 0)
+	local spreadDeg, radius = self:computeFanLayout(handCount, cw, ch, fanCfg, w)
 	local angleDeg = 0
 	if handCount and handCount > 1 then
 		local t = (i - 1) / (handCount - 1)
@@ -381,9 +466,9 @@ function HandUI:getCardTransform(i, handCount, isHovered)
 	local cx = circleCX + radius * math.sin(a)
 	local cy = circleCY - radius * math.cos(a)
 	if isHovered then
-		cy = cy - (hoverLift or 0)
+		cy = cy - (fanCfg.hoverLift or 0)
 	end
-	local rot = a * (rotationScale or 1)
+	local rot = a * (fanCfg.rotationScale or 1)
 	return cx, cy, rot, cw, ch
 end
 
@@ -937,6 +1022,26 @@ function HandUI:draw()
             -- perpendicular vector for curvature
             local px = -ny
             local py = nx
+            
+            -- Distance-based curve dampening: reduce curve intensity for short distances
+            local minDist = arrow.MIN_DIST_FOR_FULL_CURVE or 250
+            local maxDist = arrow.MAX_DIST_FOR_FULL_CURVE or 500
+            local minCurveFactor = arrow.MIN_CURVE_FACTOR or 0.02
+            local distFactor = 1
+            if dist < minDist then
+                -- Very short distance: dramatically reduce curve (interpolate from minCurveFactor to 1)
+                local t = dist / minDist
+                -- Use smoothstep for gentler transition
+                local smoothT = t * t * (3 - 2 * t)
+                distFactor = minCurveFactor + (1 - minCurveFactor) * smoothT
+            elseif dist < maxDist then
+                -- Medium distance: ease into full curve strength
+                local t = (dist - minDist) / (maxDist - minDist)
+                distFactor = 1 + 0 * t -- already at 1, smooth transition
+            end
+            -- Apply distance factor to curve strength
+            local effectiveCurveK = curveK * distFactor
+            
             -- Flip curvature side with tweening
             -- Compute current tweened sign between previous and target side
             local targetSign = ((bx > ax) and -1 or 1)
@@ -953,15 +1058,15 @@ function HandUI:draw()
             end
 
             -- First control: earlier along the path with smaller offset (flatter start)
-            local cx = ax + dx * 0.4 + px * (dist * curveK * 0.6 * sign)
-            local cy = ay + dy * 0.4 + py * (dist * curveK * 0.6 * sign)
+            local cx = ax + dx * 0.4 + px * (dist * effectiveCurveK * 0.6 * sign)
+            local cy = ay + dy * 0.4 + py * (dist * effectiveCurveK * 0.6 * sign)
             -- Second control: very close to end with a strong offset (more end-weighted arc)
-            local c2x = ax + dx * 0.92 + px * (dist * curveK * 2.2 * sign)
-            local c2y = ay + dy * 0.92 + py * (dist * curveK * 2.2 * sign)
+            local c2x = ax + dx * 0.92 + px * (dist * effectiveCurveK * 2.2 * sign)
+            local c2y = ay + dy * 0.92 + py * (dist * effectiveCurveK * 2.2 * sign)
 
             -- Render a smooth quadratic Bezier curve (A -> control -> B) with tapered width and color/alpha gradient
             -- Draw as filled quads per segment to avoid visible seams between segments
-            local segments = 48
+            local segments = 128
 			local widthStart = (arrow.WIDTH_START or (width * 12))
             local widthEnd = (arrow.WIDTH_END or (width * 0.8))
             -- reverse gradient: start at #405F7C, end at #67AC97
