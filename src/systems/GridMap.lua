@@ -127,29 +127,60 @@ function GridMap:draw()
         end
 
         -- Draw core sprite from TMX object coordinates to follow TMX exactly (after special tiles pass)
-        if pass == 3 and self.specialTiles and self.specialTiles.core and self.specialTiles.core.px then
-            -- lazy-load core sprite from tileset
-            self.coreSprite = self.coreSprite or (function()
-                local p = string.format('%s/%s', Config.TILESET_PATH, 'heart_1.png')
-                if love.filesystem.getInfo(p) then
-                    local img = love.graphics.newImage(p)
-                    img:setFilter('nearest', 'nearest')
-                    return img
-                end
-                return nil
-            end)()
-            if self.coreSprite then
-                local px = self.specialTiles.core.px or 0
-                local py = self.specialTiles.core.py or 0
-                local pcx = self.specialTiles.core.pcx or (px + self.coreSprite:getWidth() / 2)
-                local pcy = self.specialTiles.core.pcy or (py + self.coreSprite:getHeight() / 2)
-                -- Draw at native sprite size, centered on the TMX object's center
-                local drawX = self.gridX + pcx - self.coreSprite:getWidth() / 2
-                local drawY = self.gridY + pcy - self.coreSprite:getHeight() / 2
-                love.graphics.setColor(1,1,1,1)
-                love.graphics.draw(self.coreSprite, drawX, drawY)
-            end
-        end
+		if pass == 3 and self.specialTiles and self.specialTiles.core and self.specialTiles.core.px then
+			self.coreSprite = self.coreSprite or (function()
+				local p = string.format('%s/%s', Config.TILESET_PATH, 'heart_1.png')
+				if love.filesystem.getInfo(p) then
+					local img = love.graphics.newImage(p)
+					img:setFilter('nearest', 'nearest')
+					return img
+				end
+				return nil
+			end)()
+			self.coreShieldSprite = self.coreShieldSprite or (function()
+				local p = 'assets/images/effects/fx_shield.png'
+				if love.filesystem.getInfo(p) then
+					local img = love.graphics.newImage(p)
+					img:setFilter('linear', 'linear')
+					return img
+				end
+				return nil
+			end)()
+			if self.coreSprite then
+				local px = self.specialTiles.core.px or 0
+				local py = self.specialTiles.core.py or 0
+				local pcx = self.specialTiles.core.pcx or (px + self.coreSprite:getWidth() / 2)
+				local pcy = self.specialTiles.core.pcy or (py + self.coreSprite:getHeight() / 2)
+				local drawX = self.gridX + pcx - self.coreSprite:getWidth() / 2
+				local drawY = self.gridY + pcy - self.coreSprite:getHeight() / 2
+				love.graphics.setColor(1,1,1,1)
+				love.graphics.draw(self.coreSprite, drawX, drawY)
+				local vis = self.enemySpawnManager and self.enemySpawnManager.coreShieldVisual
+				local shieldHp = (self.enemySpawnManager and self.enemySpawnManager:getCoreShield()) or 0
+				if vis and (vis.active or (vis.alpha or 0) > 0 or shieldHp > 0) and self.coreShieldSprite then
+					local baseAlpha = math.max(vis.alpha or 0, (shieldHp > 0) and 0.75 or 0)
+					if baseAlpha > 0 then
+						local pulse = math.sin((vis.pulse or 0) * 1.2) * 0.04
+						local bounce = 1 + math.sin((vis.bounceT or 0) * 6) * 0.08
+						local scale = (1.08 + pulse) * 1.3
+						local img = self.coreShieldSprite
+						local iw, ih = img:getWidth(), img:getHeight()
+						local centerX = self.gridX + pcx
+						local centerY = self.gridY + pcy - 23 - (bounce - 1) * 10
+						local prevBlend, prevAlpha = love.graphics.getBlendMode()
+						love.graphics.setBlendMode('add')
+						love.graphics.setColor(1, 1, 1, baseAlpha)
+						love.graphics.draw(img, centerX, centerY, 0, scale * bounce, scale * bounce, iw / 2, ih / 2)
+						if prevBlend then
+							love.graphics.setBlendMode(prevBlend, prevAlpha)
+						else
+							love.graphics.setBlendMode('alpha')
+						end
+						love.graphics.setColor(1,1,1,1)
+					end
+				end
+			end
+		end
         
         -- Draw towers and enemies in pass 4 (above paths, below special tiles)
         if pass == 4 then

@@ -16,6 +16,13 @@ function EnemySpawnManager:new(mapData)
     self.timeSinceLastSpawn = 0
     self.coreHealth = Config.GAME.CORE_HEALTH
     self.coreShieldHp = 0
+    self.coreShieldVisual = {
+        active = false,
+        alpha = 0,
+        pulse = 0,
+        time = 0,
+        bounceT = 0
+    }
     self.enemySprites = {}
     self.flashChains = {}
     self.floaters = {}
@@ -40,6 +47,14 @@ function EnemySpawnManager:addCoreShield(amount)
     local add = math.max(0, tonumber(amount) or 0)
     if add <= 0 then return end
     self.coreShieldHp = (self.coreShieldHp or 0) + add
+    local vis = self.coreShieldVisual
+    if vis then
+        vis.active = true
+        vis.alpha = 0
+        vis.time = 0
+        vis.bounceT = 0
+        vis.pulse = 0
+    end
 end
 
 function EnemySpawnManager:getCoreShield()
@@ -48,6 +63,10 @@ end
 
 function EnemySpawnManager:clearWaveShield()
     self.coreShieldHp = 0
+    if self.coreShieldVisual then
+        self.coreShieldVisual.active = false
+        self.coreShieldVisual.alpha = 0
+    end
 end
 
 local function applyCoreHit(self, amount)
@@ -358,6 +377,25 @@ function EnemySpawnManager:update(dt)
         end
         ::continue_loop::
     end
+
+	local vis = self.coreShieldVisual
+	if vis then
+		vis.time = (vis.time or 0) + dt
+		vis.pulse = (vis.pulse or 0) + dt
+		if vis.active or (self.coreShieldHp or 0) > 0 then
+			vis.active = true
+			vis.bounceT = (vis.bounceT or 0) + dt
+			vis.alpha = math.min(1, (vis.alpha or 0) + dt * 6)
+		else
+			vis.alpha = math.max(0, (vis.alpha or 0) - dt * 3)
+			if vis.alpha <= 0 then
+				vis.active = false
+				vis.pulse = 0
+				vis.bounceT = 0
+			end
+		end
+	end
+
     -- update floating damage numbers (age/fade only; position computed analytically on draw)
     for i = #self.floaters, 1, -1 do
         local f = self.floaters[i]

@@ -145,9 +145,12 @@ Config.DECK = {
     CARD_SPACING = 12,
     CARD_TEMPLATE_SCALE = 0.7,
     CARD_HIT_SCALE = 1.5,
-    SHOW_CARD_BOUNDS = true,
-    CARD_BOUNDS_SHRINK_FRAC = 0.68,
-    CARD_BOUNDS_OFFSET_Y = 42,
+    SHOW_CARD_BOUNDS = false,
+    CARD_BOUNDS_SHRINK_FRAC = 1,
+    CARD_BOUNDS_OFFSET_Y = 10,
+    CARD_BOUNDS_LINE_WIDTH = 2,
+    CARD_BOUNDS_COLOR = {1, 0.4, 0.2, 0.6},
+    CARD_BOUNDS_LOCK_COLOR = {0.35, 0.78, 1, 0.65},
     -- Drag clamp: lock the card once cursor crosses this Y. Prefer fractional for resolution independence.
     -- If DRAG_CLAMP_Y_FRAC is set, it's used as fraction of LOGICAL_HEIGHT. Otherwise uses DRAG_CLAMP_Y pixels.
     DRAG_CLAMP_Y = 540,

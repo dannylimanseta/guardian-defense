@@ -239,7 +239,7 @@ local function drawCardFaceText(def, id, halfW, topY, baseHalfH)
 	love.graphics.setFont(costFont)
 	love.graphics.setColor(Theme.COLORS.WHITE)
 	local costW = costFont:getWidth(costStr)
-	local costX = -halfW + 21
+	local costX = -halfW + 22
 	local costY = topY - 5
 	love.graphics.print(costStr, costX, costY)
 
@@ -262,11 +262,11 @@ local function drawCardFaceText(def, id, halfW, topY, baseHalfH)
 	local SHIFT_DOWN = 20
 	local leftX = -halfW + 16
 	local titleY = topY + 8 + SHIFT_DOWN - 15 - 20
-	Theme.drawText(def.name or id, leftX + 30, titleY + 6, Theme.FONTS.BOLD_MEDIUM, Theme.COLORS.WHITE)
+	Theme.drawText(def.name or id, leftX + 40, titleY + 6, Theme.FONTS.BOLD_MEDIUM, Theme.COLORS.WHITE)
 	-- LV label below name (smaller, bold)
 	if def.level then
 		local lvY = titleY + Theme.FONTS.BOLD_LARGE:getHeight() + 12
-		Theme.drawText(string.format('LV %d', def.level), leftX - 1, lvY + 3, Theme.FONTS.BOLD_SMALL, Theme.COLORS.WHITE)
+		Theme.drawText(string.format('LV %d', def.level), leftX + 2, lvY + 3, Theme.FONTS.BOLD_SMALL, Theme.COLORS.WHITE)
 		-- description below LV
 		if def.description and #def.description > 0 then
 			local descY = lvY + Theme.FONTS.SMALL:getHeight() + 6 + 110
@@ -695,6 +695,16 @@ function HandUI:draw()
 		local halfW = baseHalfW * shrink
 		local topY = -baseHalfH + (Config.DECK.CARD_BOUNDS_OFFSET_Y or 0)
 		drawCardFaceText(def, id, halfW, topY, baseHalfH)
+		if Config.DECK.SHOW_CARD_BOUNDS then
+			local lw = Config.DECK.CARD_BOUNDS_LINE_WIDTH or 2
+			local color = (isHovered and (Config.DECK.CARD_BOUNDS_LOCK_COLOR or {0.35, 0.78, 1, 0.65})) or (Config.DECK.CARD_BOUNDS_COLOR or {1, 0.4, 0.2, 0.6})
+			local prevWidth = love.graphics.getLineWidth and love.graphics.getLineWidth() or 1
+			love.graphics.setColor(color[1], color[2], color[3], color[4])
+			love.graphics.setLineWidth(lw)
+			love.graphics.rectangle('line', -halfW, topY, halfW * 2, baseHalfH * 2)
+			if love.graphics.setLineWidth then love.graphics.setLineWidth(prevWidth) end
+			love.graphics.setColor(1, 1, 1, 1)
+		end
 
 		love.graphics.pop()
 	end
@@ -839,6 +849,16 @@ function HandUI:draw()
 		local halfW = baseHalfW * shrink
 		local topY = -baseHalfH + (Config.DECK.CARD_BOUNDS_OFFSET_Y or 0)
 		drawCardFaceText(def, id, halfW, topY, baseHalfH)
+		if Config.DECK.SHOW_CARD_BOUNDS then
+			local lw = Config.DECK.CARD_BOUNDS_LINE_WIDTH or 2
+			local color = (self.drag.locked and (Config.DECK.CARD_BOUNDS_LOCK_COLOR or {0.35, 0.78, 1, 0.65})) or (Config.DECK.CARD_BOUNDS_COLOR or {1, 0.4, 0.2, 0.6})
+			local prevWidth = love.graphics.getLineWidth and love.graphics.getLineWidth() or 1
+			love.graphics.setColor(color[1], color[2], color[3], color[4])
+			love.graphics.setLineWidth(lw)
+			love.graphics.rectangle('line', -halfW, topY, halfW * 2, baseHalfH * 2)
+			if love.graphics.setLineWidth then love.graphics.setLineWidth(prevWidth) end
+			love.graphics.setColor(1, 1, 1, 1)
+		end
 
 		love.graphics.pop()
 	end
@@ -898,7 +918,7 @@ function HandUI:draw()
             -- Render a smooth quadratic Bezier curve (A -> control -> B) with tapered width and color/alpha gradient
             -- Draw as filled quads per segment to avoid visible seams between segments
             local segments = 48
-            local widthStart = (arrow.WIDTH_START or (width * 4))
+			local widthStart = (arrow.WIDTH_START or (width * 12))
             local widthEnd = (arrow.WIDTH_END or (width * 0.8))
             -- reverse gradient: start at #405F7C, end at #67AC97
             local startColor = arrow.START_COLOR or {0.251, 0.3725, 0.4863} -- #405F7C
