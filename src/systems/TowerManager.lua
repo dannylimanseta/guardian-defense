@@ -6,6 +6,49 @@ local TowerDefs = require 'src/data/towers'
 local TowerManager = {}
 TowerManager.__index = TowerManager
 
+local function copyTable(src)
+    local dst = {}
+    for k, v in pairs(src or {}) do
+        dst[k] = v
+    end
+    return dst
+end
+
+local function ensureModifierTable(tower)
+    tower.modifiers = tower.modifiers or {}
+    if tower.modifiers.rangePercent == nil then tower.modifiers.rangePercent = 0 end
+    if tower.modifiers.damagePercent == nil then tower.modifiers.damagePercent = 0 end
+    if tower.modifiers.rangeStacks == nil then tower.modifiers.rangeStacks = 0 end
+    if tower.modifiers.damageStacks == nil then tower.modifiers.damageStacks = 0 end
+    return tower.modifiers
+end
+
+function TowerManager:getEffectiveStats(tower)
+    if not tower then return {} end
+    local base = TowerDefs.getStats(tower.towerId or 'crossbow', tower.level or 1)
+    local stats = copyTable(base)
+    local mods = ensureModifierTable(tower)
+    local rangePercent = mods.rangePercent or 0
+    local damagePercent = mods.damagePercent or 0
+    if stats.rangePx then
+        local baseRange = base.rangePx or stats.rangePx
+        local bonus = math.ceil(baseRange * rangePercent)
+        stats.rangePx = baseRange + bonus
+    end
+    local function applyDamageField(field)
+        if base[field] ~= nil then
+            local penalty = math.ceil(base[field] * damagePercent)
+            stats[field] = math.max(0, base[field] - penalty)
+        end
+    end
+    applyDamageField('damageMin')
+    applyDamageField('damageMax')
+    applyDamageField('critDamageMin')
+    applyDamageField('critDamageMax')
+    applyDamageField('burnDamage')
+    return stats
+end
+
 local function spawnPoofParticles(t, tileSize)
     local poof = Config.TOWER.SPAWN_POOF or {}
     local originX = (t.x - 0.5) * tileSize
@@ -66,7 +109,8 @@ function TowerManager:placeTower(x, y, towerId, level)
         targetEnemy = nil,
         spawnT = 0,
         particles = nil,
-        spawnPoofDone = false
+        spawnPoofDone = false,
+        modifiers = {}
     }
 end
 
@@ -79,6 +123,7 @@ function TowerManager:upgradeTower(tower, targetLevel)
     if desired > maxLevel then return false end
     tower.level = desired
     tower.cooldown = math.min(tower.cooldown or 0, TowerDefs.getStats(tower.towerId or 'crossbow', desired).fireCooldown or tower.cooldown)
+    tower.modifiers = ensureModifierTable(tower)
     return true
 end
 
@@ -101,11 +146,28 @@ function TowerManager:destroyTower(tower)
     tower.destroyDuration = 0.45
     tower.destroyOffsetY = 0
     tower.destroyAlpha = 1
+    tower.destroyBaseOffsetY = 0
+    tower.destroyBaseAlpha = 1
     tower.destroyPoofDone = false
     tower.targetEnemy = nil
     tower.acquireTimer = 0
     tower.emitter = nil
     return true
+end
+
+function TowerManager:applyModifiers(tower, modifiers, cardDef)
+    if not tower or not modifiers then return false end
+    local mods = ensureModifierTable(tower)
+    local rangePercent = modifiers.rangePercent or 0
+    local damagePercent = modifiers.damagePercent or 0
+    if rangePercent == 0 and damagePercent == 0 then return false end
+    mods.rangePercent = (mods.rangePercent or 0) + rangePercent
+    mods.damagePercent = (mods.damagePercent or 0) + damagePercent
+    mods.rangeStacks = (mods.rangeStacks or 0) + 1
+    mods.damageStacks = (mods.damageStacks or 0) + ((damagePercent ~= 0) and 1 or 0)
+    tower.lastModifiedBy = cardDef and cardDef.id or nil
+    tower.lastModifiedAt = love.timer and love.timer.getTime and love.timer.getTime() or nil
+    return mods
 end
 
 function TowerManager:update(dt, tileSize, enemies, projectiles, enemySpawnManager)
@@ -115,7 +177,9 @@ function TowerManager:update(dt, tileSize, enemies, projectiles, enemySpawnManag
             local dur = t.destroyDuration or 0.45
             local progress = math.min(1, t.destroyT / math.max(0.0001, dur))
             t.destroyAlpha = 1 - progress
-            t.destroyOffsetY = -(tileSize * 0.5) * progress
+            t.destroyOffsetY = -(tileSize * 0.6) * progress
+            t.destroyBaseOffsetY = -(tileSize * 0.35) * progress
+            t.destroyBaseAlpha = 1 - progress
             if not t.destroyPoofDone then
                 t.destroyPoofDone = true
                 spawnPoofParticles(t, tileSize)
@@ -127,7 +191,7 @@ function TowerManager:update(dt, tileSize, enemies, projectiles, enemySpawnManag
         t.spawnT = math.min((t.spawnT or 0) + dt, (Config.TOWER.SPAWN_ANIM and Config.TOWER.SPAWN_ANIM.DURATION) or 0)
         t.cooldown = math.max(0, (t.cooldown or 0) - dt)
         -- Acquire target in range: prioritize closest to core (furthest along path)
-        local stats = TowerDefs.getStats(t.towerId or 'crossbow', t.level or 1)
+        local stats = self:getEffectiveStats(t)
         local best, bestPriority
         for _, e in ipairs(enemies) do
             local a = e.path[math.max(1, e.pathIndex)]
@@ -421,8 +485,8 @@ function TowerManager:draw(gridX, gridY, tileSize)
             local scaleX = tileSize / self.towerBaseSprite:getWidth()
             local scaleY = tileSize / self.towerBaseSprite:getHeight()
             local drawX = tileX + (tileSize - self.towerBaseSprite:getWidth() * scaleX) / 2
-            local drawY = tileY + (tileSize - self.towerBaseSprite:getHeight() * scaleY) / 2 + oy
-            love.graphics.setColor(1,1,1,alpha)
+            local drawY = tileY + (tileSize - self.towerBaseSprite:getHeight() * scaleY) / 2 + oy + (t.destroyBaseOffsetY or 0)
+            love.graphics.setColor(1,1,1,alpha * ((t.destroyBaseAlpha ~= nil) and t.destroyBaseAlpha or 1))
             love.graphics.draw(self.towerBaseSprite, drawX, drawY, 0, scaleX * scale, scaleY * scale)
         end
 

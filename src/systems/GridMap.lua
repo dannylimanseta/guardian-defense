@@ -83,13 +83,21 @@ function GridMap:init()
     self.hoverGlow.glow.strength = 5
 end
 
-function GridMap:hideUpgradeMenu()
-    if self.upgradeMenu then
+function GridMap:hideUpgradeMenu(force)
+    if not self.upgradeMenu then return end
+    if force then
         self.upgradeMenu.visible = false
         self.upgradeMenu.tower = nil
         self.upgradeMenu.hitboxes = {}
         self.upgradeMenu.openT = 0
+        self.upgradeMenu.closeT = nil
+        self.upgradeMenu.isClosing = false
+        return
     end
+    if self.upgradeMenu.isClosing then return end
+    self.upgradeMenu.visible = false
+    self.upgradeMenu.isClosing = true
+    self.upgradeMenu.closeT = 0
 end
 
 function GridMap:showUpgradeMenu(tileX, tileY)
@@ -101,6 +109,8 @@ function GridMap:showUpgradeMenu(tileX, tileY)
     self.upgradeMenu.visible = true
     self.upgradeMenu.tower = tower
     self.upgradeMenu.openT = 0
+    self.upgradeMenu.closeT = nil
+    self.upgradeMenu.isClosing = false
     local centerX = self.gridX + (tileX - 0.5) * self.tileSize
     local centerY = self.gridY + (tileY - 0.5) * self.tileSize
     local cfg = Config.UI.TOWER_MENU or {}
@@ -110,7 +120,7 @@ function GridMap:showUpgradeMenu(tileX, tileY)
 end
 
 function GridMap:rebuildUpgradeMenuHitboxes()
-    if not self.upgradeMenu or not self.upgradeMenu.visible then return end
+    if not self.upgradeMenu or not self.upgradeMenu.visible or self.upgradeMenu.isClosing then return end
     local cfg = Config.UI.TOWER_MENU or {}
     local width = cfg.WIDTH or 200
     local rowHeight = cfg.ROW_HEIGHT or 40
@@ -469,6 +479,19 @@ function GridMap:placeTowerAt(x, y, towerId, level)
     return true
 end
 
+function GridMap:applyTowerModifiers(x, y, modifiers, cardDef)
+    local tower = self.towerManager:getTowerAt(x, y)
+    if not tower then return false end
+    local ok = self.towerManager:applyModifiers(tower, modifiers, cardDef)
+    if not ok then return false end
+    if not self.selectedTile or self.selectedTile.x ~= x or self.selectedTile.y ~= y then
+        self.selectedTile = { x = x, y = y }
+    end
+    self.rangeBounceT = 0
+    self.rangeAlpha = 1
+    return true
+end
+
 function GridMap:update(dt)
     -- Update enemy system
     self.enemySpawnManager:update(dt)
@@ -525,11 +548,24 @@ function GridMap:update(dt)
         self.rangeBounceT = (self.rangeBounceT or 0) + dt
     end
 
-    if self.upgradeMenu and self.upgradeMenu.visible then
+    if self.upgradeMenu and (self.upgradeMenu.visible or self.upgradeMenu.isClosing) then
         self.upgradeMenu.openT = (self.upgradeMenu.openT or 0) + dt
+        if self.upgradeMenu.isClosing then
+            self.upgradeMenu.closeT = (self.upgradeMenu.closeT or 0) + dt
+            local fadeDur = (Config.UI.TOWER_MENU and Config.UI.TOWER_MENU.FADE_IN_DURATION) or 0.18
+            local totalFade = fadeDur + ((Config.UI.TOWER_MENU and Config.UI.TOWER_MENU.FADE_IN_STAGGER) or 0.06) * 1.5
+            if self.upgradeMenu.closeT >= totalFade then
+                self:hideUpgradeMenu(true)
+                return
+            end
+        end
         local tower = self.upgradeMenu.tower
-        if not tower then
+        if tower and tower.destroying and not self.upgradeMenu.isClosing then
             self:hideUpgradeMenu()
+            tower = self.upgradeMenu.tower
+        end
+        if not tower then
+            self:hideUpgradeMenu(true)
         else
             local stats = TowerDefs.getStats(tower.towerId or 'crossbow', (tower.level or 1) + 1)
             self:rebuildUpgradeMenuHitboxes()
@@ -550,7 +586,7 @@ function GridMap:drawInfoPanel()
         local titleFont = Theme.FONTS.LARGE
         local labelFont = Theme.FONTS.MEDIUM
         local valueFont = Theme.FONTS.MEDIUM
-        local stats = TowerDefs.getStats(infoTower.towerId or 'crossbow', infoTower.level or 1)
+        local stats = self.towerManager:getEffectiveStats(infoTower)
         local titleH = titleFont:getHeight()
         local levelH = labelFont:getHeight()
         local lineH = valueFont:getHeight() + 6
@@ -560,7 +596,7 @@ function GridMap:drawInfoPanel()
         self.infoPanelAlpha = math.min(1, (self.infoPanelAlpha or 0) + 6 * love.timer.getDelta())
         love.graphics.setColor(0, 0, 0, 0.3 * (self.infoPanelAlpha or 1))
         love.graphics.rectangle('fill', x, y, panelW, panelH)
-        local accent = {0.4039, 0.6745, 0.5922, 1}
+        local accent = {0.8627, 0.7608, 0.4588, 1} -- #DCC275
         local tx = x + pad
         local ty = y + pad
         Theme.drawText((stats.name or 'Tower'), tx, ty, titleFont, {1,1,1,(self.infoPanelAlpha or 1)})
@@ -595,7 +631,7 @@ function GridMap:drawInfoPanel()
 end
 
 function GridMap:handleUpgradeMenuClick(x, y)
-    if not self.upgradeMenu or not self.upgradeMenu.visible then return false end
+    if not self.upgradeMenu or not self.upgradeMenu.visible or self.upgradeMenu.isClosing then return false end
     for _, hb in ipairs(self.upgradeMenu.hitboxes) do
         if x >= hb.x and x <= hb.x + hb.w and y >= hb.y and y <= hb.y + hb.h then
             if hb.id == 'upgrade' then
@@ -642,15 +678,18 @@ function GridMap:attemptDestroySelection()
     elseif self.towerManager and self.towerManager.destroyTower then
         self.towerManager:destroyTower(tower)
         self:hideUpgradeMenu()
+    else
+        self:hideUpgradeMenu()
     end
     return true
 end
 
 function GridMap:drawUpgradeMenu(costCheck)
     local menu = self.upgradeMenu
-    if not menu or not menu.visible then return end
+    if not menu or (not menu.visible and not menu.isClosing) then return end
     local tower = menu.tower
     if not tower then return end
+    menu.visible = menu.visible or menu.isClosing
 
     local cfg = Config.UI.TOWER_MENU or {}
     local font = Theme.FONTS.BOLD_MEDIUM
@@ -701,14 +740,19 @@ function GridMap:drawUpgradeMenu(costCheck)
 
     local function drawRow(label, costText, icon, enabled, order)
         local alpha = enabled and 1 or 0.5
-        love.graphics.setColor(0, 0, 0, 0.7)
-        love.graphics.rectangle('fill', rowX, rowY, width - padding, rowHeight, rowHeight / 2, rowHeight / 2)
         local openT = self.upgradeMenu and self.upgradeMenu.openT or 0
+        local closeT = menu.isClosing and (menu.closeT or 0) or nil
         local fadeDur = cfg.FADE_IN_DURATION or 0.18
         local stagger = cfg.FADE_IN_STAGGER or 0.06
         local delay = (order or 0) * stagger
         local progress = math.max(0, math.min(1, (openT - delay) / math.max(0.0001, fadeDur)))
         local fadeFactor = progress
+        if closeT then
+            local closeProgress = math.max(0, math.min(1, (closeT - delay) / math.max(0.0001, fadeDur)))
+            fadeFactor = fadeFactor * (1 - closeProgress)
+        end
+        love.graphics.setColor(0, 0, 0, 0.7 * fadeFactor)
+        love.graphics.rectangle('fill', rowX, rowY, width - padding, rowHeight, rowHeight / 2, rowHeight / 2)
         local contentAlpha = (enabled and 1 or 0.5) * fadeFactor
         local iconAlpha = (enabled and 1 or 0.3) * fadeFactor
         love.graphics.setColor(1, 1, 1, iconAlpha)

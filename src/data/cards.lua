@@ -1,5 +1,7 @@
 -- cards.lua - Card definitions and starter deck
 
+local Config = require 'src/config/Config'
+
 local cards = {}
 
 cards.catalog = {
@@ -38,6 +40,21 @@ cards.catalog = {
         payload = {
             shieldHp = 3
         }
+    },
+    extended_reach = {
+        id = "extended_reach",
+        name = "Extended Reach",
+        type = "modify_tower",
+        cost = 1,
+        requiresTarget = true,
+        description = "Target tower: +10% range, -5% damage.",
+        level = 1,
+        payload = {
+            modifiers = {
+                rangePercent = Config.CARD_EFFECTS.RANGE_INCREASE.RANGE_PERCENT,
+                damagePercent = Config.CARD_EFFECTS.RANGE_INCREASE.DAMAGE_PERCENT
+            }
+        }
     }
 }
 
@@ -45,12 +62,17 @@ cards.starter_deck = {
     "crossbow_basic",
     "fire_basic",
     "fire_basic",
-    "fire_basic",
     "crossbow_basic",
     "crossbow_basic",
-    "energy_shield"
+    "extended_reach"
+}
+
+cards.starter_hand_guarantees = {
+    "crossbow_basic",
+    "extended_reach"
 }
 
 return cards
+
 
 

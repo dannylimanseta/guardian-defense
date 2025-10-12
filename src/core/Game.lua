@@ -170,9 +170,17 @@ function Game:mousemoved(x, y, dx, dy)
     if self.handUI and self.handUI.drag and self.handUI.drag.active then
         local tile = self.gridMap:getTileAtPosition(gameX, gameY)
         local eligible = false
+        local cardDef = nil
+        if self.handUI.drag.cardId then
+            cardDef = self.deck:getCardDef(self.handUI.drag.cardId)
+        end
         if tile then
-            -- Eligibility: must be build spot and not occupied
-            eligible = self.gridMap:isBuildSpot(tile.x, tile.y) and (not self.gridMap:isOccupied(tile.x, tile.y))
+            if cardDef and cardDef.type == 'modify_tower' then
+                eligible = self.gridMap:isOccupied(tile.x, tile.y)
+            else
+                -- Eligibility: must be build spot and not occupied
+                eligible = self.gridMap:isBuildSpot(tile.x, tile.y) and (not self.gridMap:isOccupied(tile.x, tile.y))
+            end
         end
         self.gridMap:setHoverFromPlacement(tile, eligible)
     else
@@ -197,10 +205,16 @@ function Game:mousereleased(x, y, button)
     local placed = false
     local requiresTarget = (def.requiresTarget ~= false)
     if requiresTarget then
+        local tile = self.gridMap:getTileAtPosition(gameX, gameY)
         if def.type == 'place_tower' and def.payload and def.payload.tower then
-            local tile = self.gridMap:getTileAtPosition(gameX, gameY)
             if tile then
                 placed = self.gridMap:placeTowerAt(tile.x, tile.y, def.payload.tower, def.payload.level or 1)
+            else
+                placed = false
+            end
+        elseif def.type == 'modify_tower' and def.payload and def.payload.modifiers then
+            if tile then
+                placed = self.gridMap:applyTowerModifiers(tile.x, tile.y, def.payload.modifiers, def)
             else
                 placed = false
             end

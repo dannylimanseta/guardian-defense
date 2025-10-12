@@ -173,7 +173,7 @@ Config.TOWER = {
 
 -- Deck / Card System Settings
 Config.DECK = {
-    HAND_SIZE = 5,
+    HAND_SIZE = 6,
     ENERGY_PER_WAVE = 10,
     DISCARD_ON_WAVE_END = true,
     -- UI layout (logical coordinates)
@@ -225,9 +225,17 @@ Config.DECK = {
         MAX_SPREAD_DEG = 80,       -- Max total spread angle across the hand
         MIN_SPREAD_DEG = 16,       -- Minimum total spread when very few cards
         PER_CARD_SPREAD_DEG = 14,  -- Increment of spread per additional card
-        ROTATION_SCALE = 1,        -- 1 = tangent to the arc, <1 reduces tilt
+        ROTATION_SCALE = 0.7,      -- 1 = tangent to the arc, <1 reduces tilt
         BASELINE_OFFSET_Y = 32,    -- Offset (pixels) to nudge baseline up/down (shifted +20px)
         HOVER_LIFT = 22            -- How much a hovered/dragged card lifts visually
+    }
+}
+
+-- Card Effects
+Config.CARD_EFFECTS = {
+    RANGE_INCREASE = {
+        RANGE_PERCENT = 0.1,
+        DAMAGE_PERCENT = 0.05
     }
 }
 

@@ -163,6 +163,10 @@ local function loadCardArtForId(cardId)
 	if not artName and tostring(cardId):find('fire', 1, true) then
 		artName = 'card_fire.png'
 	end
+	-- Extended reach card art mapping
+	if not artName and tostring(cardId):find('extended_reach', 1, true) then
+		artName = 'card_extended_reach.png'
+	end
     -- Energy Shield art (id or alias)
     if not artName and (tostring(cardId):find('energy_shield', 1, true) or tostring(cardId):find('energy_sheild', 1, true)) then
         artName = 'card_energy_shield.png'
