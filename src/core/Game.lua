@@ -19,6 +19,21 @@ function Game:init()
     -- Initialize game systems
     self.gridMap = GridMap:new()
     self.gridMap:init()
+    if self.gridMap and self.gridMap.setEnemyKilledCallback then
+        self.gridMap:setEnemyKilledCallback(function(enemyId, worldX, worldY)
+            self:handleEnemyKilled(enemyId, worldX, worldY)
+        end)
+    end
+    if self.gridMap and self.gridMap.setTowerUpgradeRequest then
+        self.gridMap:setTowerUpgradeRequest(function(tower, targetLevel, cost)
+            self:attemptTowerUpgrade(tower, targetLevel, cost)
+        end)
+    end
+    if self.gridMap and self.gridMap.setTowerDestroyRequest then
+        self.gridMap:setTowerDestroyRequest(function(tower)
+            self:attemptTowerDestroy(tower)
+        end)
+    end
     -- Wire hit callback for screen move
     self.gridMap.onHitScreenMove = function(dx, dy)
         self.screenMoveX = (self.screenMoveX or 0) + dx
@@ -34,6 +49,11 @@ function Game:init()
     self.effect = nil
     self.postFXEnabled = false
     
+    -- HUD assets
+    self.coinIcon = nil
+    self.coinCount = 0
+    self.coinPickups = {}
+
     -- Initialize deck/hand systems
     self.deck = DeckManager:new()
     self.deck:loadOrCreateDeck()
@@ -47,6 +67,7 @@ end
 function Game:update(dt)
     ResolutionManager:update()
     self.gridMap:update(dt)
+    self:updateCoinPickups(dt)
     if self.handUI and self.handUI.update then
         self.handUI:update(dt)
     end
@@ -96,9 +117,17 @@ function Game:draw()
     if Config.UI.SHOW_CORE_HEALTH then
         self:drawHUD()
     end
+    self:drawCoinTracker()
+    if self.gridMap and self.gridMap.drawUpgradeMenu then
+        local costCheck = function(cost)
+            return (self.coinCount or 0) >= (cost or 0)
+        end
+        self.gridMap:drawUpgradeMenu(costCheck)
+    end
     if self.gridMap and self.gridMap.drawInfoPanel then
         self.gridMap:drawInfoPanel()
     end
+    self:drawCoinPickups()
 
     love.graphics.pop()
 end
@@ -243,6 +272,232 @@ function Game:drawHUD()
     local tx = x + panelWidth - padding - textW
     local ty = y + padding
     Theme.drawText(text, tx, ty, font, Theme.COLORS.WHITE)
+end
+
+function Game:loadCoinIcon()
+    if self.coinIcon ~= nil then return self.coinIcon end
+    local tracker = Config.UI.COIN_TRACKER
+    if not tracker then
+        self.coinIcon = false
+        return nil
+    end
+    local filename = tracker.ICON or 'coin_1.png'
+    local path = string.format('%s/%s', Config.ENTITIES_PATH, filename)
+    if love.filesystem.getInfo(path) then
+        local ok, img = pcall(love.graphics.newImage, path)
+        if ok and img then
+            if img.setFilter then
+                img:setFilter('linear', 'linear')
+            end
+            self.coinIcon = img
+            return img
+        end
+    end
+    self.coinIcon = false
+    return nil
+end
+
+function Game:getCoinCount()
+    return self.coinCount or 0
+end
+
+function Game:addCoins(amount)
+    if amount and amount > 0 then
+        self.coinCount = (self.coinCount or 0) + amount
+    end
+end
+
+function Game:spendCoins(amount)
+    amount = amount or 0
+    if amount <= 0 then return true end
+    if (self.coinCount or 0) < amount then
+        return false
+    end
+    self.coinCount = (self.coinCount or 0) - amount
+    return true
+end
+
+function Game:handleEnemyKilled(enemyId, worldX, worldY)
+    local dropCfg = Config.GAME.COIN_DROP or {}
+    local spec = dropCfg[enemyId]
+    if not spec then return end
+    local chance = spec.chance or 0
+    local coins = spec.coins or 0
+    if coins <= 0 then return end
+    if math.random() > chance then return end
+    if worldX and worldY then
+        self:onEnemyCoinsDropped(coins, worldX, worldY)
+    else
+        self:addCoins(coins)
+    end
+end
+
+function Game:onEnemyCoinsDropped(coins, worldX, worldY)
+    if not coins or coins <= 0 then return end
+    local tracker = Config.GAME.COIN_DROP and Config.GAME.COIN_DROP.pickup or {}
+    local duration = tracker.travelTime or 1
+    local variance = tracker.travelTimeVariance or 0
+    local arcHeight = tracker.arcHeight or -160
+    local lateralJitter = tracker.lateralJitter or 0
+    local startLift = tracker.startLift or 0
+    local delayBetween = tracker.delayBetweenCoins or 0
+    for i = 1, coins do
+        local delay = (i - 1) * delayBetween
+        local journey = duration + (math.random() * 2 - 1) * variance
+        journey = math.max(0.25, journey)
+        local jitter = (math.random() * 2 - 1) * lateralJitter
+        local pickup = {
+            startX = worldX + jitter,
+            startY = worldY + startLift,
+            controlX = worldX + jitter * 0.4,
+            controlY = worldY + arcHeight,
+            endX = self:getCoinTrackerTargetX(),
+            endY = self:getCoinTrackerTargetY(),
+            t = 0,
+            duration = journey,
+            delay = delay,
+            collected = false
+        }
+        table.insert(self.coinPickups, pickup)
+    end
+end
+
+function Game:getCoinTrackerTargetX()
+    local tracker = Config.UI.COIN_TRACKER or {}
+    local margin = tracker.MARGIN or 16
+    local icon = self:loadCoinIcon()
+    local iconScale = tracker.ICON_SCALE or 1
+    local spacing = tracker.ICON_TEXT_SPACING or 8
+    local fontKey = tracker.FONT or 'BOLD_MEDIUM'
+    local font = Theme.FONTS[fontKey] or Theme.FONTS.BOLD_MEDIUM
+    local x = margin
+    if icon then
+        local iw = icon:getWidth()
+        x = x + iw * iconScale + spacing
+    end
+    local text = tostring(self.coinCount or 0)
+    local textWidth = font:getWidth(text)
+    return x + textWidth * 0.5
+end
+
+function Game:getCoinTrackerTargetY()
+    local tracker = Config.UI.COIN_TRACKER or {}
+    local margin = tracker.MARGIN or 16
+    local offsetY = tracker.OFFSET_Y or 0
+    local fontKey = tracker.FONT or 'BOLD_MEDIUM'
+    local font = Theme.FONTS[fontKey] or Theme.FONTS.BOLD_MEDIUM
+    local y = (Config.LOGICAL_HEIGHT or 0) - margin - font:getHeight() - offsetY
+    return y + font:getHeight() * 0.5
+end
+
+local function quadraticBezier(p0x, p0y, p1x, p1y, p2x, p2y, t)
+    local inv = 1 - t
+    local x = inv * inv * p0x + 2 * inv * t * p1x + t * t * p2x
+    local y = inv * inv * p0y + 2 * inv * t * p1y + t * t * p2y
+    return x, y
+end
+
+function Game:updateCoinPickups(dt)
+    if not self.coinPickups then return end
+    for i = #self.coinPickups, 1, -1 do
+        local p = self.coinPickups[i]
+        if p.delay and p.delay > 0 then
+            p.delay = math.max(0, p.delay - dt)
+        else
+            p.t = (p.t or 0) + dt
+            if p.t >= p.duration then
+                if not p.collected then
+                    self:addCoins(1)
+                    p.collected = true
+                end
+                table.remove(self.coinPickups, i)
+            end
+        end
+    end
+end
+
+function Game:drawCoinPickups()
+    if not self.coinPickups or #self.coinPickups == 0 then return end
+    love.graphics.setColor(1, 1, 1, 1)
+    local icon = self:loadCoinIcon()
+    for _, p in ipairs(self.coinPickups) do
+        if not p.collected then
+            if p.delay and p.delay > 0 then
+                -- still waiting
+            else
+                local t = math.max(0, math.min(1, (p.t or 0) / (p.duration or 1)))
+                local x, y = quadraticBezier(p.startX, p.startY, p.controlX, p.controlY, p.endX, p.endY, t)
+                local scale = Config.UI.COIN_TRACKER and Config.UI.COIN_TRACKER.ICON_SCALE or 1
+                if icon then
+                    love.graphics.draw(icon, x, y, 0, scale, scale, icon:getWidth() * 0.5, icon:getHeight() * 0.5)
+                else
+                    love.graphics.circle('fill', x, y, 6)
+                end
+            end
+        end
+    end
+end
+
+function Game:drawCoinTracker()
+    local tracker = Config.UI.COIN_TRACKER
+    if not tracker then return end
+
+    local icon = self:loadCoinIcon()
+    local coinCount = self:getCoinCount()
+
+    local margin = tracker.MARGIN or 16
+    local offsetY = tracker.OFFSET_Y or 0
+    local iconScale = tracker.ICON_SCALE or 1
+    local iconTextSpacing = tracker.ICON_TEXT_SPACING or 8
+    local color = tracker.COLOR or Theme.COLORS.WHITE
+    local shadowColor = tracker.SHADOW_COLOR or {0, 0, 0, 0.6}
+    local fontKey = tracker.FONT or 'BOLD_MEDIUM'
+    local font = Theme.FONTS[fontKey] or Theme.FONTS.BOLD_MEDIUM
+
+    local x = margin
+    local y = (Config.LOGICAL_HEIGHT or 0) - margin - font:getHeight() - offsetY
+
+    if icon then
+        local iw, ih = icon:getWidth(), icon:getHeight()
+        local sx = iconScale
+        local sy = iconScale
+        local drawY = y + font:getHeight() * 0.5 - (ih * sy) * 0.5
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.draw(icon, x, drawY, 0, sx, sy)
+        x = x + iw * sx + iconTextSpacing
+    end
+
+    local text = tostring(coinCount)
+    Theme.drawShadowText(text, x, y, font, color, shadowColor)
+end
+
+function Game:attemptTowerUpgrade(tower, targetLevel, cost)
+    if not tower or not targetLevel then return false end
+    cost = cost or 0
+    if cost > 0 then
+        if not self:spendCoins(cost) then
+            return false
+        end
+    end
+    if self.gridMap and self.gridMap.towerManager and self.gridMap.towerManager.upgradeTower then
+        local ok = self.gridMap.towerManager:upgradeTower(tower, targetLevel)
+        if ok then
+            return true
+        else
+            if cost > 0 then
+                self:addCoins(cost)
+            end
+        end
+    end
+    return false
+end
+
+function Game:attemptTowerDestroy(tower)
+    if not tower then return false end
+    if self.gridMap and self.gridMap.towerManager and self.gridMap.towerManager.destroyTower then
+        return self.gridMap.towerManager:destroyTower(tower)
+    end
+    return false
 end
 
 return Game

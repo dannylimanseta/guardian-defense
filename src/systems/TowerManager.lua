@@ -6,6 +6,42 @@ local TowerDefs = require 'src/data/towers'
 local TowerManager = {}
 TowerManager.__index = TowerManager
 
+local function spawnPoofParticles(t, tileSize)
+    local poof = Config.TOWER.SPAWN_POOF or {}
+    local originX = (t.x - 0.5) * tileSize
+    local originY = (t.y - 0.5) * tileSize
+    t.particles = {}
+    local num = poof.NUM or 10
+    for i = 1, num do
+        local life = (poof.LIFE_MIN or 0.3) + math.random() * ((poof.LIFE_MAX or 0.6) - (poof.LIFE_MIN or 0.3))
+        local ang = math.random() * math.pi * 2
+        local spd = (poof.SPEED_MIN or 40) + math.random() * ((poof.SPEED_MAX or 120) - (poof.SPEED_MIN or 40))
+        t.particles[#t.particles + 1] = {
+            x = originX,
+            y = originY,
+            vx = math.cos(ang) * spd,
+            vy = math.sin(ang) * spd,
+            life = life,
+            age = 0,
+            size = (poof.SIZE_MIN or 2) + math.random() * ((poof.SIZE_MAX or 6) - (poof.SIZE_MIN or 2))
+        }
+    end
+end
+
+local function updatePoofParticles(t, dt)
+    if not t.particles then return end
+    local grav = (Config.TOWER.SPAWN_POOF and Config.TOWER.SPAWN_POOF.GRAVITY) or 0
+    for i = #t.particles, 1, -1 do
+        local p = t.particles[i]
+        p.age = p.age + dt
+        p.vy = p.vy + grav * dt
+        p.x = p.x + p.vx * dt
+        p.y = p.y + p.vy * dt
+        if p.age >= p.life then table.remove(t.particles, i) end
+    end
+    if #t.particles == 0 then t.particles = nil end
+end
+
 function TowerManager:new()
     local self = setmetatable({}, TowerManager)
     self.towers = {}
@@ -34,19 +70,59 @@ function TowerManager:placeTower(x, y, towerId, level)
     }
 end
 
+function TowerManager:upgradeTower(tower, targetLevel)
+    if not tower then return false end
+    local currentLevel = tower.level or 1
+    local desired = targetLevel or (currentLevel + 1)
+    if desired <= currentLevel then return false end
+    local maxLevel = TowerDefs.getMaxLevel(tower.towerId or 'crossbow') or currentLevel
+    if desired > maxLevel then return false end
+    tower.level = desired
+    tower.cooldown = math.min(tower.cooldown or 0, TowerDefs.getStats(tower.towerId or 'crossbow', desired).fireCooldown or tower.cooldown)
+    return true
+end
+
 function TowerManager:getTowers()
     return self.towers
 end
 
 function TowerManager:getTowerAt(x, y)
     for _, t in ipairs(self.towers) do
-        if t.x == x and t.y == y then return t end
+        if t.x == x and t.y == y and not t.destroying then return t end
     end
     return nil
 end
 
+function TowerManager:destroyTower(tower)
+    if not tower then return false end
+    if tower.destroying then return false end
+    tower.destroying = true
+    tower.destroyT = 0
+    tower.destroyDuration = 0.45
+    tower.destroyOffsetY = 0
+    tower.destroyAlpha = 1
+    tower.destroyPoofDone = false
+    tower.targetEnemy = nil
+    tower.acquireTimer = 0
+    tower.emitter = nil
+    return true
+end
+
 function TowerManager:update(dt, tileSize, enemies, projectiles, enemySpawnManager)
     for _, t in ipairs(self.towers) do
+        if t.destroying then
+            t.destroyT = (t.destroyT or 0) + dt
+            local dur = t.destroyDuration or 0.45
+            local progress = math.min(1, t.destroyT / math.max(0.0001, dur))
+            t.destroyAlpha = 1 - progress
+            t.destroyOffsetY = -(tileSize * 0.5) * progress
+            if not t.destroyPoofDone then
+                t.destroyPoofDone = true
+                spawnPoofParticles(t, tileSize)
+            end
+            updatePoofParticles(t, dt)
+            goto continue
+        end
         -- spawn anim timer
         t.spawnT = math.min((t.spawnT or 0) + dt, (Config.TOWER.SPAWN_ANIM and Config.TOWER.SPAWN_ANIM.DURATION) or 0)
         t.cooldown = math.max(0, (t.cooldown or 0) - dt)
@@ -269,38 +345,18 @@ function TowerManager:update(dt, tileSize, enemies, projectiles, enemySpawnManag
         local animDur = (Config.TOWER.SPAWN_ANIM and Config.TOWER.SPAWN_ANIM.DURATION) or 0
         if not t.spawnPoofDone and animDur > 0 and (t.spawnT or 0) >= animDur and t.particles == nil then
             t.spawnPoofDone = true
-            t.particles = {}
-            local poof = Config.TOWER.SPAWN_POOF or {}
-            local num = poof.NUM or 10
-            for i=1,num do
-                local life = (poof.LIFE_MIN or 0.3) + math.random() * ((poof.LIFE_MAX or 0.6) - (poof.LIFE_MIN or 0.3))
-                local ang = math.random() * math.pi * 2
-                local spd = (poof.SPEED_MIN or 40) + math.random() * ((poof.SPEED_MAX or 120) - (poof.SPEED_MIN or 40))
-                t.particles[#t.particles+1] = {
-                    x = (t.x - 0.5) * tileSize,
-                    y = (t.y - 0.5) * tileSize,
-                    vx = math.cos(ang) * spd,
-                    vy = math.sin(ang) * spd,
-                    life = life,
-                    age = 0,
-                    size = (poof.SIZE_MIN or 2) + math.random() * ((poof.SIZE_MAX or 6) - (poof.SIZE_MIN or 2))
-                }
-            end
+            spawnPoofParticles(t, tileSize)
         end
         -- update particles
-        if t.particles then
-            local grav = (Config.TOWER.SPAWN_POOF and Config.TOWER.SPAWN_POOF.GRAVITY) or 0
-            for i = #t.particles, 1, -1 do
-                local p = t.particles[i]
-                p.age = p.age + dt
-                p.vy = p.vy + grav * dt
-                p.x = p.x + p.vx * dt
-                p.y = p.y + p.vy * dt
-                if p.age >= p.life then table.remove(t.particles, i) end
-            end
-            if #t.particles == 0 then t.particles = nil end
-        end
+        updatePoofParticles(t, dt)
         ::continue::
+    end
+
+    for i = #self.towers, 1, -1 do
+        local t = self.towers[i]
+        if t.destroying and (t.destroyT or 0) >= (t.destroyDuration or 0.45) then
+            table.remove(self.towers, i)
+        end
     end
 end
 
@@ -373,6 +429,8 @@ function TowerManager:draw(gridX, gridY, tileSize)
         local isFire = (t.towerId or 'crossbow') == 'fire'
         local turretSprite = isFire and self.towerFireSprite or self.towerCrossbowSprite
         local particleSprite = self.fireParticleSprite or turretSprite
+        local totalAlpha = alpha * ((t.destroyAlpha ~= nil) and t.destroyAlpha or 1)
+        local offsetY = oy + (t.destroyOffsetY or 0)
         if isFire and particleSprite and t.emitter then
             -- Draw the cone spray VFX behind the turret head
             -- trail
@@ -413,12 +471,12 @@ function TowerManager:draw(gridX, gridY, tileSize)
             local scaleX = tileSize / turretSprite:getWidth()
             local scaleY = tileSize / turretSprite:getHeight()
             local cx = tileX + tileSize / 2
-            local cy = tileY + tileSize / 2 + oy
+            local cy = tileY + tileSize / 2 + offsetY
             local angle = (t.angleCurrent or 0)
             local recoil = (t.recoil or 0)
             local ox = -math.cos(angle) * recoil
             local oy2 = -math.sin(angle) * recoil
-            love.graphics.setColor(1,1,1,alpha)
+            love.graphics.setColor(1,1,1,totalAlpha)
             love.graphics.draw(
                 turretSprite,
                 cx + ox,

@@ -157,6 +157,20 @@ function Theme.drawText(text, x, y, font, color)
     love.graphics.print(text, x, y)
 end
 
+function Theme.drawShadowText(text, x, y, font, color, shadowColor, ox, oy)
+    font = font or Theme.FONTS.MEDIUM
+    color = color or Theme.COLORS.WHITE
+    shadowColor = shadowColor or {0, 0, 0, 0.6}
+    ox = ox or 1
+    oy = oy or 1
+
+    love.graphics.setFont(font)
+    love.graphics.setColor(shadowColor)
+    love.graphics.print(text, x + ox, y + oy)
+    love.graphics.setColor(color)
+    love.graphics.print(text, x, y)
+end
+
 function Theme.drawTextCentered(text, cx, y, font, color)
     font = font or Theme.FONTS.MEDIUM
     color = color or Theme.COLORS.WHITE

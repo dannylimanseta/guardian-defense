@@ -40,6 +40,14 @@ function GridMap:init()
     self.specialTiles = self.mapData.special
     self.towerManager = TowerManager:new()
     self.projectileManager = ProjectileManager:new()
+    self.upgradeMenu = {
+        visible = false,
+        tower = nil,
+        screenX = 0,
+        screenY = 0,
+        hitboxes = {},
+        openT = 0
+    }
 
     -- Calculate grid position (centered on screen)
     self.gridWidth = self.columns * self.tileSize
@@ -59,6 +67,12 @@ function GridMap:init()
 
     -- Enemy system
     self.enemySpawnManager = EnemySpawnManager:new(self.mapData)
+    if self.enemySpawnManager.setWorldParams then
+        self.enemySpawnManager:setWorldParams(self.gridX, self.gridY, self.tileSize)
+    end
+    if self.onEnemyKilled then
+        self.enemySpawnManager.onEnemyKilled = self.onEnemyKilled
+    end
 
     -- Tower sprites (lazy-loaded on first draw)
     self.towerBaseSprite = nil
@@ -69,9 +83,81 @@ function GridMap:init()
     self.hoverGlow.glow.strength = 5
 end
 
+function GridMap:hideUpgradeMenu()
+    if self.upgradeMenu then
+        self.upgradeMenu.visible = false
+        self.upgradeMenu.tower = nil
+        self.upgradeMenu.hitboxes = {}
+        self.upgradeMenu.openT = 0
+    end
+end
+
+function GridMap:showUpgradeMenu(tileX, tileY)
+    local tower = self.towerManager:getTowerAt(tileX, tileY)
+    if not tower then
+        self:hideUpgradeMenu()
+        return
+    end
+    self.upgradeMenu.visible = true
+    self.upgradeMenu.tower = tower
+    self.upgradeMenu.openT = 0
+    local centerX = self.gridX + (tileX - 0.5) * self.tileSize
+    local centerY = self.gridY + (tileY - 0.5) * self.tileSize
+    local cfg = Config.UI.TOWER_MENU or {}
+    self.upgradeMenu.screenX = centerX + (cfg.OFFSET_X or 0)
+    self.upgradeMenu.screenY = centerY + (cfg.OFFSET_Y or 0)
+    self:rebuildUpgradeMenuHitboxes()
+end
+
+function GridMap:rebuildUpgradeMenuHitboxes()
+    if not self.upgradeMenu or not self.upgradeMenu.visible then return end
+    local cfg = Config.UI.TOWER_MENU or {}
+    local width = cfg.WIDTH or 200
+    local rowHeight = cfg.ROW_HEIGHT or 40
+    local padding = cfg.PADDING or 12
+    local x = self.upgradeMenu.screenX
+    local y = self.upgradeMenu.screenY
+    local hitboxes = {}
+    hitboxes[#hitboxes + 1] = {
+        id = 'upgrade',
+        x = x,
+        y = y,
+        w = width,
+        h = rowHeight
+    }
+    hitboxes[#hitboxes + 1] = {
+        id = 'destroy',
+        x = x,
+        y = y + rowHeight + (cfg.GAP or 6),
+        w = width,
+        h = rowHeight
+    }
+    self.upgradeMenu.hitboxes = hitboxes
+end
+
+function GridMap:getUpgradeMenuTower()
+    return self.upgradeMenu and self.upgradeMenu.tower or nil
+end
+
+function GridMap:setTowerUpgradeRequest(callback)
+    self.onTowerUpgradeRequest = callback
+end
+
+function GridMap:setTowerDestroyRequest(callback)
+    self.onTowerDestroyRequest = callback
+end
+
+function GridMap:setEnemyKilledCallback(callback)
+    self.onEnemyKilled = callback
+    if self.enemySpawnManager then
+        self.enemySpawnManager.onEnemyKilled = callback
+    end
+end
+
 -- (update merged below with towers/projectiles logic)
 
 function GridMap:draw()
+    love.graphics.push()
     -- Draw grid background
     love.graphics.setColor(Config.COLORS.GRID_BACKGROUND)
     love.graphics.rectangle("fill", self.gridX, self.gridY, self.gridWidth, self.gridHeight)
@@ -282,17 +368,26 @@ function GridMap:draw()
     
     -- Reset color
     love.graphics.setColor(1, 1, 1, 1)
+    love.graphics.pop()
 end
 
 -- projectiles handled by ProjectileManager
 
 function GridMap:mousepressed(x, y, button)
     if button == 1 then -- Left click
+        if self:handleUpgradeMenuClick(x, y) then
+            return
+        end
         local tile = self:getTileAtPosition(x, y)
         if tile then
             self.selectedTile = tile
-            -- Selection only; placement is gated by card play via Game:mousereleased
-            -- no debug print
+            if self.towerManager:getTowerAt(tile.x, tile.y) then
+                self:showUpgradeMenu(tile.x, tile.y)
+            else
+                self:hideUpgradeMenu()
+            end
+        else
+            self:hideUpgradeMenu()
         end
     end
 end
@@ -377,6 +472,14 @@ end
 function GridMap:update(dt)
     -- Update enemy system
     self.enemySpawnManager:update(dt)
+    if self.enemySpawnManager.consumeKilledEvents then
+        local events = self.enemySpawnManager:consumeKilledEvents()
+        if events and self.onEnemyKilled then
+            for _, evt in ipairs(events) do
+                self.onEnemyKilled(evt.enemyId, evt.worldX, evt.worldY)
+            end
+        end
+    end
 
     -- Update towers (targeting and firing)
     local projectiles = self.projectileManager:get()
@@ -420,6 +523,17 @@ function GridMap:update(dt)
     self.prevRangeTargetAlpha = targetAlpha
     if self.rangeAlpha > 0 then
         self.rangeBounceT = (self.rangeBounceT or 0) + dt
+    end
+
+    if self.upgradeMenu and self.upgradeMenu.visible then
+        self.upgradeMenu.openT = (self.upgradeMenu.openT or 0) + dt
+        local tower = self.upgradeMenu.tower
+        if not tower then
+            self:hideUpgradeMenu()
+        else
+            local stats = TowerDefs.getStats(tower.towerId or 'crossbow', (tower.level or 1) + 1)
+            self:rebuildUpgradeMenuHitboxes()
+        end
     end
 end
 
@@ -478,6 +592,159 @@ function GridMap:drawInfoPanel()
             self.infoPanelAlpha = math.max(0, self.infoPanelAlpha - 6 * love.timer.getDelta())
         end
     end
+end
+
+function GridMap:handleUpgradeMenuClick(x, y)
+    if not self.upgradeMenu or not self.upgradeMenu.visible then return false end
+    for _, hb in ipairs(self.upgradeMenu.hitboxes) do
+        if x >= hb.x and x <= hb.x + hb.w and y >= hb.y and y <= hb.y + hb.h then
+            if hb.id == 'upgrade' then
+                if self.upgradeMenu.upgradeEnabled then
+                    return self:attemptUpgradeSelection()
+                else
+                    return true
+                end
+            elseif hb.id == 'destroy' then
+                return self:attemptDestroySelection()
+            end
+        end
+    end
+    return false
+end
+
+function GridMap:attemptUpgradeSelection()
+    local tower = self:getUpgradeMenuTower()
+    if not tower then return true end
+    local currentLevel = tower.level or 1
+    local targetLevel = currentLevel + 1
+    local cost = TowerDefs.getUpgradeCost(tower.towerId or 'crossbow', targetLevel) or 0
+    local maxLevel = TowerDefs.getMaxLevel(tower.towerId or 'crossbow') or currentLevel
+    if targetLevel > maxLevel then
+        return true
+    end
+    if self.onTowerUpgradeRequest then
+        local success = self.onTowerUpgradeRequest(tower, targetLevel, cost)
+        if success then
+            self:rebuildUpgradeMenuHitboxes()
+        end
+    end
+    return true
+end
+
+function GridMap:attemptDestroySelection()
+    local tower = self:getUpgradeMenuTower()
+    if not tower then return true end
+    if self.onTowerDestroyRequest then
+        local success = self.onTowerDestroyRequest(tower)
+        if success then
+            self:hideUpgradeMenu()
+        end
+    elseif self.towerManager and self.towerManager.destroyTower then
+        self.towerManager:destroyTower(tower)
+        self:hideUpgradeMenu()
+    end
+    return true
+end
+
+function GridMap:drawUpgradeMenu(costCheck)
+    local menu = self.upgradeMenu
+    if not menu or not menu.visible then return end
+    local tower = menu.tower
+    if not tower then return end
+
+    local cfg = Config.UI.TOWER_MENU or {}
+    local font = Theme.FONTS.BOLD_MEDIUM
+    local rowHeight = cfg.ROW_HEIGHT or 44
+    local width = cfg.WIDTH or 220
+    local gap = cfg.GAP or 8
+    local padding = cfg.PADDING or 12
+    local iconSize = cfg.ICON_SIZE or 28
+    local iconSpacing = cfg.ICON_TEXT_SPACING or 10
+    local menuX = menu.screenX
+    local menuY = menu.screenY
+
+    local iconUpgrade = self.upgradeIcon
+    if not iconUpgrade then
+        local path = string.format('%s/%s', Config.ENTITIES_PATH, 'upgrade.png')
+        if love.filesystem.getInfo(path) then
+            iconUpgrade = love.graphics.newImage(path)
+            if iconUpgrade and iconUpgrade.setFilter then
+                iconUpgrade:setFilter('linear', 'linear')
+            end
+            self.upgradeIcon = iconUpgrade
+        end
+    end
+
+    local iconDestroy = self.destroyIcon
+    if not iconDestroy then
+        local path = string.format('%s/%s', Config.ENTITIES_PATH, 'destroy.png')
+        if love.filesystem.getInfo(path) then
+            iconDestroy = love.graphics.newImage(path)
+            if iconDestroy and iconDestroy.setFilter then
+                iconDestroy:setFilter('linear', 'linear')
+            end
+            self.destroyIcon = iconDestroy
+        else
+            self.destroyIcon = false
+        end
+    end
+
+    local currentLevel = tower.level or 1
+    local targetLevel = currentLevel + 1
+    local maxLevel = TowerDefs.getMaxLevel(tower.towerId or 'crossbow') or currentLevel
+    local upgradeCost = TowerDefs.getUpgradeCost(tower.towerId or 'crossbow', targetLevel) or 0
+    local upgradeAvailable = targetLevel <= maxLevel
+    local canAfford = not costCheck or costCheck(upgradeCost)
+
+    local rowX = menuX
+    local rowY = menuY
+
+    local function drawRow(label, costText, icon, enabled, order)
+        local alpha = enabled and 1 or 0.5
+        love.graphics.setColor(0, 0, 0, 0.7)
+        love.graphics.rectangle('fill', rowX, rowY, width - padding, rowHeight, rowHeight / 2, rowHeight / 2)
+        local openT = self.upgradeMenu and self.upgradeMenu.openT or 0
+        local fadeDur = cfg.FADE_IN_DURATION or 0.18
+        local stagger = cfg.FADE_IN_STAGGER or 0.06
+        local delay = (order or 0) * stagger
+        local progress = math.max(0, math.min(1, (openT - delay) / math.max(0.0001, fadeDur)))
+        local fadeFactor = progress
+        local contentAlpha = (enabled and 1 or 0.5) * fadeFactor
+        local iconAlpha = (enabled and 1 or 0.3) * fadeFactor
+        love.graphics.setColor(1, 1, 1, iconAlpha)
+        if icon and icon ~= false then
+            local scale = iconSize / icon:getWidth()
+            love.graphics.draw(icon, rowX + 12, rowY + (rowHeight - icon:getHeight() * scale) / 2, 0, scale, scale)
+        else
+            love.graphics.setColor(0.8, 0.25, 0.3, iconAlpha)
+            love.graphics.circle('fill', rowX + 12 + iconSize / 2, rowY + rowHeight / 2, iconSize * 0.35)
+            love.graphics.setColor(1, 1, 1, iconAlpha)
+        end
+        love.graphics.setColor(1, 1, 1, contentAlpha)
+        love.graphics.setFont(font)
+        local textX = rowX + 12 + iconSize + iconSpacing
+        local textY = rowY + (rowHeight - font:getHeight()) / 2
+        Theme.drawShadowText(label, textX, textY, font, {1,1,1,contentAlpha})
+        if costText then
+            love.graphics.setColor(1, 0.85, 0.3, contentAlpha)
+            local costWidth = font:getWidth(costText)
+            love.graphics.print(costText, rowX + width - padding - costWidth - 14, textY)
+        end
+        rowY = rowY + rowHeight + gap
+        return enabled and fadeFactor >= 1
+    end
+
+    if upgradeAvailable then
+        local label = string.format('Upgrade LV %d', targetLevel)
+        local costText = upgradeCost and upgradeCost > 0 and tostring(upgradeCost) or nil
+        menu.upgradeEnabled = drawRow(label, costText, iconUpgrade, canAfford and upgradeAvailable, 0)
+    else
+        menu.upgradeEnabled = drawRow('Max Level', nil, iconUpgrade, false, 0)
+    end
+
+    drawRow('Destroy', nil, iconDestroy, true, 1)
+
+    self:rebuildUpgradeMenuHitboxes()
 end
 
 return GridMap

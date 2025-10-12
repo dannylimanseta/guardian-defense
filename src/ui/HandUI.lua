@@ -252,7 +252,8 @@ local function drawCardFaceText(def, id, halfW, topY, baseHalfH)
 		local scale = math.min(fitScale * 1.07, 1)
 		local centerY = topY + (baseHalfH and (baseHalfH * 0.5) or (maxH * 0.5))
 		local drawX = - (iw * scale) * 0.5
-		local drawY = centerY - (ih * scale) * 0.5 - 14
+		local offsetY = (Config.DECK and Config.DECK.CARD_ART_OFFSET_Y) or 0
+		local drawY = centerY - (ih * scale) * 0.5 - 14 + offsetY
 		love.graphics.draw(art, drawX, drawY, 0, scale, scale)
 	end
 

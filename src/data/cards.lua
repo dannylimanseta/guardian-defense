@@ -45,6 +45,7 @@ cards.starter_deck = {
     "crossbow_basic",
     "fire_basic",
     "fire_basic",
+    "fire_basic",
     "crossbow_basic",
     "crossbow_basic",
     "energy_shield"
