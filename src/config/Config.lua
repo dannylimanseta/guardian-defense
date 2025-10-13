@@ -143,6 +143,10 @@ Config.TOWER = {
         SLIDE_PIXELS = 24,    -- start this many pixels above, slide into place
         BACK_S = 1.4          -- back overshoot strength (easeOutBack)
     },
+    LEVEL_UP_BOUNCE = {
+        DURATION = 0.22,      -- seconds for level-up pop
+        BACK_S = 1.5          -- overshoot strength
+    },
     SPAWN_POOF = {
         NUM = 7,
         LIFE_MIN = 0.35,
@@ -173,9 +177,18 @@ Config.TOWER = {
 
 -- Deck / Card System Settings
 Config.DECK = {
+    -- Cards dealt at each intermission (per-wave default). Hand has no hard cap.
+    INTERMISSION_DEAL = 3,
+    -- For the very first intermission (before wave 1), deal this many instead of the default
+    INITIAL_INTERMISSION_DEAL = 5,
+    -- Starting energy when a new run begins
+    STARTING_ENERGY = 5,
+    -- Energy change per wave completion (added at intermission start)
+    ENERGY_GAIN_PER_WAVE = 1,
+    -- Legacy hand size used by some UI layout math; does not cap the hand
     HAND_SIZE = 6,
-    ENERGY_PER_WAVE = 10,
-    DISCARD_ON_WAVE_END = true,
+    -- Discard previous hand at intermission start before dealing a fresh hand
+    DISCARD_ON_INTERMISSION_START = true,
     -- UI layout (logical coordinates)
     HAND_MARGIN = 12,
     CARD_WIDTH = 100,
@@ -184,12 +197,23 @@ Config.DECK = {
     CARD_TEMPLATE_SCALE = 0.7,
     CARD_ART_OFFSET_Y = 15,
     CARD_HIT_SCALE = 1.5,
+    -- Debug: show the interactive hit area used for hover/click on cards
+    SHOW_CARD_HITBOX = true,
+    CARD_HITBOX_COLOR = {0.2, 1, 0.3, 0.65},
+    CARD_HITBOX_HOVER_COLOR = {1, 0.9, 0.2, 0.85},
+    CARD_HITBOX_LINE_WIDTH = 2,
     SHOW_CARD_BOUNDS = false,
     CARD_BOUNDS_SHRINK_FRAC = 1,
     CARD_BOUNDS_OFFSET_Y = 10,
     CARD_BOUNDS_LINE_WIDTH = 2,
     CARD_BOUNDS_COLOR = {1, 0.4, 0.2, 0.6},
     CARD_BOUNDS_LOCK_COLOR = {0.35, 0.78, 1, 0.65},
+    -- Hover tween behavior
+    HOVER_TWEEN = {
+        DURATION = 0.22,           -- seconds for hover lift/lower
+        EASE_IN = 'easeOut',       -- applied when entering hover (requested ease-out feel)
+        EASE_OUT = 'easeOut'       -- applied when exiting hover
+    },
     -- Drag clamp: lock the card once cursor crosses this Y. Prefer fractional for resolution independence.
     -- If DRAG_CLAMP_Y_FRAC is set, it's used as fraction of LOGICAL_HEIGHT. Otherwise uses DRAG_CLAMP_Y pixels.
     DRAG_CLAMP_Y = 540,
@@ -242,8 +266,7 @@ Config.DECK = {
 -- Card Effects
 Config.CARD_EFFECTS = {
     RANGE_INCREASE = {
-        RANGE_PERCENT = 0.1,
-        DAMAGE_PERCENT = 0.05
+        RANGE_PERCENT = 0.1
     }
 }
 

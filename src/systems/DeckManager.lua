@@ -43,12 +43,20 @@ function DeckManager:new()
     self.discardPile = {}
     self.hand = {}
     self.energy = 0
+    self.intermissionSerial = 0
     self.state = {
         draggingCardIndex = nil,
         draggingCardId = nil,
         isDragging = false
     }
     return self
+end
+
+function DeckManager:startRun()
+    -- Initialize energy and prepare initial intermission hand
+    self.energy = Config.DECK.STARTING_ENERGY or 0
+    -- Ensure deck is shuffled already by loadOrCreateDeck
+    self:onIntermissionStart(1)
 end
 
 function DeckManager:loadOrCreateDeck()
@@ -82,16 +90,35 @@ function DeckManager:saveDeck()
     love.filesystem.write(saveName, contents)
 end
 
-function DeckManager:startWave()
-    self.energy = Config.DECK.ENERGY_PER_WAVE
-    -- discard leftover hand if configured
-    if Config.DECK.DISCARD_ON_WAVE_END and #self.hand > 0 then
+-- Called when a wave fully ends; grants energy increase
+function DeckManager:onWaveEnded(waveIndex)
+    local gain = Config.DECK.ENERGY_GAIN_PER_WAVE or 0
+    self.energy = (self.energy or 0) + gain
+end
+
+-- Called at the start of intermission before the next wave begins
+function DeckManager:onIntermissionStart(nextWaveIndex)
+    -- bump serial so UI can trigger transitional animation
+    self.intermissionSerial = (self.intermissionSerial or 0) + 1
+    if Config.DECK.DISCARD_ON_INTERMISSION_START and #self.hand > 0 then
         for i = 1, #self.hand do
             table.insert(self.discardPile, self.hand[i])
         end
         self.hand = {}
     end
-    self:drawToHandSize()
+    local toDeal
+    if (nextWaveIndex == 1) and (Config.DECK.INITIAL_INTERMISSION_DEAL ~= nil) then
+        toDeal = Config.DECK.INITIAL_INTERMISSION_DEAL or 0
+    else
+        toDeal = Config.DECK.INTERMISSION_DEAL or 0
+    end
+    if toDeal > 0 then
+        self:drawCards(toDeal)
+    end
+end
+
+function DeckManager:getIntermissionSerial()
+    return self.intermissionSerial or 0
 end
 
 function DeckManager:drawCards(n)

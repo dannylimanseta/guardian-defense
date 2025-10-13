@@ -57,11 +57,11 @@ function Game:init()
     -- Initialize deck/hand systems
     self.deck = DeckManager:new()
     self.deck:loadOrCreateDeck()
-    self.deck:startWave()
+    self.deck:startRun()
     self.handUI = HandUI:new(self.deck)
 
-    -- Initialize wave manager with current stage and spawn system
-    self.waveManager = WaveManager:new('level_1', self.gridMap.enemySpawnManager)
+    -- Initialize wave manager with current stage, spawn system, and deck manager (for intermission hooks)
+    self.waveManager = WaveManager:new('level_1', self.gridMap.enemySpawnManager, self.deck)
 end
 
 function Game:update(dt)
@@ -496,6 +496,9 @@ function Game:attemptTowerUpgrade(tower, targetLevel, cost)
     if self.gridMap and self.gridMap.towerManager and self.gridMap.towerManager.upgradeTower then
         local ok = self.gridMap.towerManager:upgradeTower(tower, targetLevel)
         if ok then
+            if self.gridMap and self.gridMap.onTowerUpgraded then
+                self.gridMap:onTowerUpgraded(tower)
+            end
             return true
         else
             if cost > 0 then

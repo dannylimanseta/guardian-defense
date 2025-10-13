@@ -164,6 +164,26 @@ function GridMap:setEnemyKilledCallback(callback)
     end
 end
 
+-- Ensure info panel and related UI reflect an immediate tower upgrade
+function GridMap:onTowerUpgraded(tower)
+    if not tower then return end
+    -- Keep selection anchored on the upgraded tower
+    if (not self.selectedTile) or self.selectedTile.x ~= tower.x or self.selectedTile.y ~= tower.y then
+        self.selectedTile = { x = tower.x, y = tower.y }
+    end
+    -- Refresh hover reference so panel reads latest stats even if mouse didn't move
+    self.hoveredTower = tower
+    -- Nudge range indicator feedback/visibility
+    self.rangeBounceT = 0
+    self.rangeAlpha = 1
+    -- Make the panel fully visible right away
+    self.infoPanelAlpha = 1
+    -- Recompute menu hitboxes to reflect new state (cost/availability)
+    if self.upgradeMenu and self.upgradeMenu.visible and (not self.upgradeMenu.isClosing) then
+        self:rebuildUpgradeMenuHitboxes()
+    end
+end
+
 -- (update merged below with towers/projectiles logic)
 
 function GridMap:draw()

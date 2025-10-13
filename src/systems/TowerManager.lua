@@ -121,9 +121,12 @@ function TowerManager:upgradeTower(tower, targetLevel)
     if desired <= currentLevel then return false end
     local maxLevel = TowerDefs.getMaxLevel(tower.towerId or 'crossbow') or currentLevel
     if desired > maxLevel then return false end
+    local wasLevel = tower.level or 1
     tower.level = desired
     tower.cooldown = math.min(tower.cooldown or 0, TowerDefs.getStats(tower.towerId or 'crossbow', desired).fireCooldown or tower.cooldown)
     tower.modifiers = ensureModifierTable(tower)
+    -- Trigger level-up visual pop
+    tower.levelUpT = 0
     return true
 end
 
@@ -431,10 +434,16 @@ function TowerManager:draw(gridX, gridY, tileSize)
             self.towerBaseSprite = love.graphics.newImage(path)
         end
     end
-    if not self.towerCrossbowSprite then
+    if not self.towerCrossbowSprite1 then
         local path = string.format('%s/%s', Config.ENTITIES_PATH, 'tower_crossbow_1.png')
         if love.filesystem.getInfo(path) then
-            self.towerCrossbowSprite = love.graphics.newImage(path)
+            self.towerCrossbowSprite1 = love.graphics.newImage(path)
+        end
+    end
+    if not self.towerCrossbowSprite2 then
+        local path = string.format('%s/%s', Config.ENTITIES_PATH, 'tower_crossbow_2.png')
+        if love.filesystem.getInfo(path) then
+            self.towerCrossbowSprite2 = love.graphics.newImage(path)
         end
     end
     if not self.towerFireSprite then
@@ -491,7 +500,15 @@ function TowerManager:draw(gridX, gridY, tileSize)
         end
 
         local isFire = (t.towerId or 'crossbow') == 'fire'
-        local turretSprite = isFire and self.towerFireSprite or self.towerCrossbowSprite
+        local isCrossbow = not isFire
+        local turretSprite
+        if isFire then
+            turretSprite = self.towerFireSprite
+        else
+            -- pick sprite by level for crossbow
+            local lvl = t.level or 1
+            turretSprite = (lvl and lvl >= 2) and (self.towerCrossbowSprite2 or self.towerCrossbowSprite1) or (self.towerCrossbowSprite1)
+        end
         local particleSprite = self.fireParticleSprite or turretSprite
         local totalAlpha = alpha * ((t.destroyAlpha ~= nil) and t.destroyAlpha or 1)
         local offsetY = oy + (t.destroyOffsetY or 0)
@@ -540,14 +557,25 @@ function TowerManager:draw(gridX, gridY, tileSize)
             local recoil = (t.recoil or 0)
             local ox = -math.cos(angle) * recoil
             local oy2 = -math.sin(angle) * recoil
+            -- Level-up bounce scale
+            local sfx = 1
+            if t.levelUpT and (t.levelUpT < ((Config.TOWER.LEVEL_UP_BOUNCE and Config.TOWER.LEVEL_UP_BOUNCE.DURATION) or 0)) then
+                local dur = (Config.TOWER.LEVEL_UP_BOUNCE and Config.TOWER.LEVEL_UP_BOUNCE.DURATION) or 0.22
+                t.levelUpT = t.levelUpT + (love.timer and love.timer.getDelta and love.timer.getDelta() or 0)
+                local u = math.min(1, t.levelUpT / math.max(0.0001, dur))
+                local sBack = (Config.TOWER.LEVEL_UP_BOUNCE and Config.TOWER.LEVEL_UP_BOUNCE.BACK_S) or 1.5
+                local k = 1 + sBack
+                local back = 1 + (k*u - sBack) * (u - 1) * (u - 1)
+                sfx = back
+            end
             love.graphics.setColor(1,1,1,totalAlpha)
             love.graphics.draw(
                 turretSprite,
                 cx + ox,
                 cy + oy2,
                 angle,
-                scaleX * scale,
-                scaleY * scale,
+                scaleX * scale * sfx,
+                scaleY * scale * sfx,
                 turretSprite:getWidth() / 2,
                 turretSprite:getHeight() / 2
             )

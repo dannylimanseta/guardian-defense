@@ -49,6 +49,7 @@ function HandUI:new(deckManager)
     }
     self.cardTemplate = nil
     self.hoverIndex = nil
+    self.prevHoverIndex = nil
     self.mouseX, self.mouseY = 0, 0
     -- layout tweening and play-out animation state
     self.cardStates = {} -- [key] = { x,y,rot, fromX,fromY,fromRot, toX,toY,toRot, t, dur, alpha }
@@ -62,6 +63,17 @@ function HandUI:new(deckManager)
     self.fxCardGlow = nil
     self.fxCardGlowWarned = false
     self.time = 0
+    -- Intermission transition state
+    self.prevIntermissionSerial = (deckManager and deckManager.getIntermissionSerial and deckManager:getIntermissionSerial()) or 0
+    self.intermission = {
+        outAnims = {}, -- { id, startX, startY, endY, t, dur, delay }
+        activeOut = false,
+        slideOutDur = 0.18,
+        slideInDur = 0.22,
+        stagger = 0.045,
+        slideInBaseDelay = 0
+    }
+    self.pendingIntermissionSlideIn = false
     return self
 end
 
@@ -81,6 +93,13 @@ local function easeValue(u, mode)
         return u * u * (3 - 2 * u)
     elseif mode == 'smootherstep' then
         return u * u * u * (u * (u * 6 - 15) + 10)
+    elseif mode == 'easeIn' or mode == 'in' then
+        -- quadratic ease-in
+        return u * u
+    elseif mode == 'easeOut' or mode == 'out' then
+        -- quadratic ease-out
+        local omt = 1 - u
+        return 1 - omt * omt
     end
     return u
 end
@@ -328,6 +347,7 @@ function HandUI:startLayoutTween()
         local isHovered = (not self.drag.active) and (self.hoverIndex == i)
         local cx, cy, rot = self:getCardTransform(i, n, isHovered)
         local st = self.cardStates[key] or {}
+        -- Default layout tween
         st.fromX = st.x or cx
         st.fromY = st.y or cy
         st.fromRot = st.rot or rot
@@ -336,13 +356,29 @@ function HandUI:startLayoutTween()
         st.toRot = rot
         st.t = 0
         st.dur = self.layoutTweenDur or 0.2
-        st.x = st.fromX
-        st.y = st.fromY
-        st.rot = st.fromRot
+        st.ease = self.layoutEase or 'smootherstep'
+        st.delay = 0
+        -- If an intermission slide-in is pending, start cards from offscreen bottom with staggered delays
+        if self.pendingIntermissionSlideIn then
+            local offY = (Config.LOGICAL_HEIGHT or 0) + (Config.DECK.CARD_HEIGHT or 140) + 120
+            st.fromY = offY
+            st.fromX = cx
+            st.fromRot = 0
+            st.dur = self.intermission.slideInDur or 0.22
+            st.delay = (self.intermission.slideInBaseDelay or 0) + ((i - 1) * (self.intermission.stagger or 0))
+            st.x = st.fromX
+            st.y = st.fromY
+            st.rot = st.fromRot
+        else
+            st.x = st.fromX
+            st.y = st.fromY
+            st.rot = st.fromRot
+        end
         st.alpha = 1
         self.cardStates[key] = st
     end
     self.lastHandIds = shallowCopyList(hand)
+    self.pendingIntermissionSlideIn = false
 end
 
 function HandUI:computeFanLayout(handCount, cw, ch, fanCfg, screenWidth)
@@ -616,6 +652,7 @@ function HandUI:mousemoved(x, y, dx, dy)
     local hand = self.deck:getHand()
     local n = #hand
     local order = getDrawOrder(n, true)
+    self.prevHoverIndex = self.hoverIndex
     self.hoverIndex = nil
     for k = #order, 1, -1 do
         local i = order[k]
@@ -624,12 +661,9 @@ function HandUI:mousemoved(x, y, dx, dy)
         local hw = ((hHit or ch)) * 0.5
         local hh = ((wHit or cw)) * 0.5
 		if pointInOBB(x, y, cx, cy, rot, hw, hh) then
-			-- Only show hover if the card is currently playable (eligible interactivity)
-			local canPlay = self.deck:canPlayCard(hand[i])
-			if canPlay then
-				self.hoverIndex = i
-				break
-			end
+			-- Allow hover regardless of playability so players can read card info
+			self.hoverIndex = i
+			break
 		end
     end
 	return self.hoverIndex ~= nil
@@ -768,12 +802,7 @@ function HandUI:draw()
         else
             cx, cy, rot = self:getCardTransform(i, n, isHovered)
         end
-        -- Apply hover lift visually even when using stored state
-        if isHovered then
-            local fan = (Config.DECK and Config.DECK.FAN) or {}
-            local lift = fan.HOVER_LIFT or 22
-            cy = cy - lift
-        end
+		-- Hover lift is handled via layout tween targets; avoid instant visual jump here
 		local cw, ch = Config.DECK.CARD_WIDTH, Config.DECK.CARD_HEIGHT
 		-- lazy-load template
         if not self.cardTemplate then
@@ -799,7 +828,7 @@ function HandUI:draw()
             love.graphics.setColor(1, 1, 1, 1)
         end
 
-        -- card background / template
+			-- card background / template
         if self.cardTemplate then
             love.graphics.setColor(1, 1, 1, 1)
             local iw = self.cardTemplate:getWidth()
@@ -825,6 +854,22 @@ function HandUI:draw()
 		local halfW = baseHalfW * shrink
 		local topY = -baseHalfH + (Config.DECK.CARD_BOUNDS_OFFSET_Y or 0)
 		drawCardFaceText(def, id, halfW, topY, baseHalfH)
+
+			-- Debug: oriented hitbox overlay (same as input test)
+			if Config.DECK.SHOW_CARD_HITBOX then
+				local wHit, hHit = (self:getCardHitSize())
+				-- swap to match sprite orientation used by hit test
+				local hw = ((hHit or ch)) * 0.5
+				local hh = ((wHit or cw)) * 0.5
+				local lw = Config.DECK.CARD_HITBOX_LINE_WIDTH or 2
+				local color = (isHovered and (Config.DECK.CARD_HITBOX_HOVER_COLOR or {1, 0.9, 0.2, 0.85})) or (Config.DECK.CARD_HITBOX_COLOR or {0.2, 1, 0.3, 0.65})
+				local prevWidth = love.graphics.getLineWidth and love.graphics.getLineWidth() or 1
+				love.graphics.setColor(color[1], color[2], color[3], color[4])
+				love.graphics.setLineWidth(lw)
+				love.graphics.rectangle('line', -hw, -hh, hw * 2, hh * 2, 6, 6)
+				if love.graphics.setLineWidth then love.graphics.setLineWidth(prevWidth) end
+				love.graphics.setColor(1, 1, 1, 1)
+			end
 		if Config.DECK.SHOW_CARD_BOUNDS then
 			local lw = Config.DECK.CARD_BOUNDS_LINE_WIDTH or 2
 			local color = (isHovered and (Config.DECK.CARD_BOUNDS_LOCK_COLOR or {0.35, 0.78, 1, 0.65})) or (Config.DECK.CARD_BOUNDS_COLOR or {1, 0.4, 0.2, 0.6})
@@ -978,6 +1023,21 @@ function HandUI:draw()
 		local halfW = baseHalfW * shrink
 		local topY = -baseHalfH + (Config.DECK.CARD_BOUNDS_OFFSET_Y or 0)
 		drawCardFaceText(def, id, halfW, topY, baseHalfH)
+			-- Debug: hitbox overlay for dragged card (upright)
+			if Config.DECK.SHOW_CARD_HITBOX then
+				local wHit, hHit = (self:getCardHitSize())
+				-- match undragged orientation (swap like input hit test)
+				local hw = ((hHit or ch)) * 0.5
+				local hh = ((wHit or cw)) * 0.5
+				local lw = Config.DECK.CARD_HITBOX_LINE_WIDTH or 2
+				local color = (self.drag.locked and (Config.DECK.CARD_HITBOX_HOVER_COLOR or {1, 0.9, 0.2, 0.85})) or (Config.DECK.CARD_HITBOX_COLOR or {0.2, 1, 0.3, 0.65})
+				local prevWidth = love.graphics.getLineWidth and love.graphics.getLineWidth() or 1
+				love.graphics.setColor(color[1], color[2], color[3], color[4])
+				love.graphics.setLineWidth(lw)
+				love.graphics.rectangle('line', -hw, -hh, hw * 2, hh * 2, 6, 6)
+				if love.graphics.setLineWidth then love.graphics.setLineWidth(prevWidth) end
+				love.graphics.setColor(1, 1, 1, 1)
+			end
 		if Config.DECK.SHOW_CARD_BOUNDS then
 			local lw = Config.DECK.CARD_BOUNDS_LINE_WIDTH or 2
 			local color = (self.drag.locked and (Config.DECK.CARD_BOUNDS_LOCK_COLOR or {0.35, 0.78, 1, 0.65})) or (Config.DECK.CARD_BOUNDS_COLOR or {1, 0.4, 0.2, 0.6})
@@ -1182,10 +1242,91 @@ function HandUI:draw()
     end
     -- Reset color to avoid tinting subsequent draws
     love.graphics.setColor(1, 1, 1, 1)
+
+    -- Intermission slide-out of previous hand (draw on top while animating)
+    if self.intermission and self.intermission.activeOut and self.intermission.outAnims then
+        for _, anim in ipairs(self.intermission.outAnims) do
+            local id = anim.id
+            local def = self.deck:getCardDef(id)
+            local u = easeValue(math.min(1, math.max(0, anim.t / (anim.dur or 0.18))), 'smoothstep')
+            local x = anim.startX
+            local y = anim.startY + (anim.endY - anim.startY) * u
+            local cw, ch = Config.DECK.CARD_WIDTH, Config.DECK.CARD_HEIGHT
+            local cw2, ch2 = cw * 0.5, ch * 0.5
+            -- lazy-load template
+            if not self.cardTemplate then
+                local path = string.format('%s/%s', Config.ENTITIES_PATH, 'card_template_1.png')
+                if love.filesystem.getInfo(path) then
+                    self.cardTemplate = love.graphics.newImage(path)
+                end
+            end
+            love.graphics.push()
+            love.graphics.translate(x, y)
+            if self.cardTemplate then
+                love.graphics.setColor(1, 1, 1, 1)
+                local iw = self.cardTemplate:getWidth()
+                local ih = self.cardTemplate:getHeight()
+                local scale = Config.DECK.CARD_TEMPLATE_SCALE or 0.7
+                local drawX = -cw2 + (cw - iw * scale) / 2
+                local drawY = -ch2 + (ch - ih * scale) / 2
+                love.graphics.draw(self.cardTemplate, drawX, drawY, 0, scale, scale)
+            else
+                love.graphics.setColor(0.15, 0.15, 0.2, 1)
+                love.graphics.rectangle('fill', -cw2, -ch2, cw, ch, 6, 6)
+                love.graphics.setColor(1, 1, 1, 1)
+                love.graphics.rectangle('line', -cw2, -ch2, cw, ch, 6, 6)
+            end
+            -- draw face contents for clarity during slide-out
+            local tmplScale = Config.DECK.CARD_TEMPLATE_SCALE or 0.7
+            local texW = (self.cardTemplate and (self.cardTemplate:getWidth() * tmplScale)) or cw
+            local texH = (self.cardTemplate and (self.cardTemplate:getHeight() * tmplScale)) or ch
+            local baseHalfW = math.max(cw, texW) * 0.5
+            local baseHalfH = math.max(ch, texH) * 0.5
+            local shrink = (Config.DECK.CARD_BOUNDS_SHRINK_FRAC or 1)
+            local halfW = baseHalfW * shrink
+            local topY = -baseHalfH + (Config.DECK.CARD_BOUNDS_OFFSET_Y or 0)
+            drawCardFaceText(def, id, halfW, topY, baseHalfH)
+            love.graphics.pop()
+        end
+        love.graphics.setColor(1, 1, 1, 1)
+    end
 end
 
 function HandUI:update(dt)
     self.time = (self.time or 0) + dt
+    -- Detect intermission transitions (discard + draw), and set up slide-out and slide-in
+    local curSerial = (self.deck and self.deck.getIntermissionSerial and self.deck:getIntermissionSerial()) or 0
+    if curSerial ~= (self.prevIntermissionSerial or 0) then
+        -- Prepare slide-out animations for previous hand
+        local prevIds = self.lastHandIds or {}
+        local count = #prevIds
+        if count > 0 then
+            self.intermission.outAnims = {}
+            for i = 1, count do
+                local id = prevIds[i]
+                local cx, cy = self:getCardTransform(i, count, false)
+                local offY = (Config.LOGICAL_HEIGHT or 0) + (Config.DECK.CARD_HEIGHT or 140) + 120
+                self.intermission.outAnims[#self.intermission.outAnims + 1] = {
+                    id = id,
+                    startX = cx,
+                    startY = cy,
+                    endY = offY,
+                    t = 0,
+                    dur = self.intermission.slideOutDur or 0.18,
+                    delay = (i - 1) * (self.intermission.stagger or 0.045)
+                }
+            end
+            self.intermission.activeOut = true
+            local totalOut = (self.intermission.slideOutDur or 0.18) + math.max(0, (count - 1)) * (self.intermission.stagger or 0.045)
+            self.intermission.slideInBaseDelay = totalOut + 0.02
+        else
+            self.intermission.activeOut = false
+            self.intermission.slideInBaseDelay = 0
+        end
+        -- Tell layout to spawn new cards from offscreen with stagger after slide-out finishes
+        self.pendingIntermissionSlideIn = true
+        self.prevIntermissionSerial = curSerial
+    end
     -- advance flip tween if active
     if self.arrowState and self.arrowState.tweenT and self.arrowState.tweenT < 1 then
         local dur = self.arrowState.tweenDur or 0.1
@@ -1259,11 +1400,28 @@ function HandUI:update(dt)
                 st.fromX, st.fromY, st.fromRot = st.x, st.y, st.rot
                 st.toX, st.toY, st.toRot = cx, cy, rot
                 st.t = 0
-                st.dur = self.layoutTweenDur or 0.2
+                -- Apply hover-specific ease/duration when entering/exiting hover
+                local hoverCfg = (Config.DECK and Config.DECK.HOVER_TWEEN) or {}
+                local defaultDur = self.layoutTweenDur or 0.2
+                st.dur = defaultDur
+                st.ease = self.layoutEase or 'smootherstep'
+                if (not self.drag.active) then
+                    if self.hoverIndex == i and self.prevHoverIndex ~= i then
+                        -- entering hover: ease-in
+                        st.dur = hoverCfg.DURATION or defaultDur
+                        st.ease = hoverCfg.EASE_IN or 'easeIn'
+                    elseif self.prevHoverIndex == i and self.hoverIndex ~= i then
+                        -- exiting hover: use configured ease-out
+                        st.dur = hoverCfg.DURATION or defaultDur
+                        st.ease = hoverCfg.EASE_OUT or self.layoutEase or 'smootherstep'
+                    end
+                end
             end
-            if st.t < 1 then
+            if st.delay and st.delay > 0 then
+                st.delay = math.max(0, st.delay - dt)
+            elseif st.t < 1 then
                 st.t = math.min(1, st.t + dt / (st.dur > 0 and st.dur or 1e-6))
-                local u = easeValue(st.t, self.layoutEase)
+                local u = easeValue(st.t, st.ease or self.layoutEase)
                 st.x = st.fromX + (st.toX - st.fromX) * u
                 st.y = st.fromY + (st.toY - st.fromY) * u
                 -- shortest angle lerp (small angles expected)
@@ -1284,6 +1442,28 @@ function HandUI:update(dt)
     end
     for i = 1, #toRemove do
         self.playAnimations[toRemove[i]] = nil
+    end
+
+    -- advance intermission slide-out animations
+    if self.intermission and self.intermission.activeOut and self.intermission.outAnims then
+        local allDone = true
+        for _, anim in ipairs(self.intermission.outAnims) do
+            if anim.delay and anim.delay > 0 then
+                anim.delay = math.max(0, anim.delay - dt)
+                allDone = false
+            else
+                if (anim.t or 0) < (anim.dur or 0.18) then
+                    anim.t = (anim.t or 0) + dt
+                    if anim.t < (anim.dur or 0.18) then
+                        allDone = false
+                    end
+                end
+            end
+        end
+        if allDone then
+            self.intermission.activeOut = false
+            self.intermission.outAnims = {}
+        end
     end
 end
 

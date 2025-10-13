@@ -47,12 +47,11 @@ cards.catalog = {
         type = "modify_tower",
         cost = 1,
         requiresTarget = true,
-        description = "Target tower: +10% range, -5% damage.",
+        description = "Target tower: +10% range.",
         level = 1,
         payload = {
             modifiers = {
-                rangePercent = Config.CARD_EFFECTS.RANGE_INCREASE.RANGE_PERCENT,
-                damagePercent = Config.CARD_EFFECTS.RANGE_INCREASE.DAMAGE_PERCENT
+                rangePercent = Config.CARD_EFFECTS.RANGE_INCREASE.RANGE_PERCENT
             }
         }
     }

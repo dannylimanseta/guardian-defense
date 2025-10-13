@@ -24,10 +24,11 @@ local function clampMin(x, minv)
     return x
 end
 
-function WaveManager:new(stageId, enemySpawnManager)
+function WaveManager:new(stageId, enemySpawnManager, deckManager)
     local self = setmetatable({}, WaveManager)
     self.stageId = stageId or 'level_1'
     self.enemySpawnManager = enemySpawnManager
+    self.deckManager = deckManager
 
     self.stage = WavesIndex[self.stageId] or { waves = {}, intermissionSeconds = 10, autoStartNext = false }
 
@@ -40,6 +41,9 @@ function WaveManager:new(stageId, enemySpawnManager)
     self.nextWaveIndex = 1
     self.intermissionRemaining = 0
     self.pendingShieldClear = {}
+    self._deferredIntermission = false
+    self._deferredWaveEndedIndex = nil
+    self._deferredNextWaveIndex = nil
 
     return self
 end
@@ -151,7 +155,10 @@ function WaveManager:update(dt)
             table.remove(self.activeWaves, i)
             -- start intermission if none active and waves remain
             if #self.activeWaves == 0 and (self.nextWaveIndex <= #(self.stage.waves or {})) then
-                self.intermissionRemaining = math.max(0, self.stage.intermissionSeconds or 0)
+                -- Defer intermission and deck notifications until all enemies are cleared from the map
+                self._deferredIntermission = true
+                self._deferredWaveEndedIndex = wave.index
+                self._deferredNextWaveIndex = self.nextWaveIndex
                 -- Clear any wave-limited core shield when a wave fully ends and no waves are active
                 -- wave ended; clear shields that were applied specifically for that wave once enemies are gone
                 if self.enemySpawnManager and self.enemySpawnManager.clearWaveShield then
@@ -170,19 +177,34 @@ function WaveManager:update(dt)
         end
     end
 
+    local enemies = nil
+    if self.enemySpawnManager and self.enemySpawnManager.getEnemies then
+        enemies = self.enemySpawnManager:getEnemies()
+    end
+    local noEnemies = (enemies == nil or #enemies == 0)
     if self.enemySpawnManager and self.enemySpawnManager.clearWaveShield then
-        if self.pendingShieldClear and #self.pendingShieldClear > 0 then
-            local enemies = nil
-            if self.enemySpawnManager.getEnemies then
-                enemies = self.enemySpawnManager:getEnemies()
+        if self.pendingShieldClear and #self.pendingShieldClear > 0 and noEnemies then
+            for i = 1, #self.pendingShieldClear do
+                self.enemySpawnManager:clearWaveShield(self.pendingShieldClear[i])
             end
-            if enemies == nil or #enemies == 0 then
-                for i = 1, #self.pendingShieldClear do
-                    self.enemySpawnManager:clearWaveShield(self.pendingShieldClear[i])
-                end
-                self.pendingShieldClear = {}
+            self.pendingShieldClear = {}
+        end
+    end
+
+    -- If intermission is deferred, start it only once enemies are fully cleared
+    if self._deferredIntermission and noEnemies then
+        self.intermissionRemaining = math.max(0, self.stage.intermissionSeconds or 0)
+        if self.deckManager then
+            if self.deckManager.onWaveEnded and self._deferredWaveEndedIndex ~= nil then
+                self.deckManager:onWaveEnded(self._deferredWaveEndedIndex)
+            end
+            if self.deckManager.onIntermissionStart and self._deferredNextWaveIndex ~= nil then
+                self.deckManager:onIntermissionStart(self._deferredNextWaveIndex)
             end
         end
+        self._deferredIntermission = false
+        self._deferredWaveEndedIndex = nil
+        self._deferredNextWaveIndex = nil
     end
 
     -- Intermission countdown and auto-start
