@@ -62,6 +62,10 @@ function Game:init()
 
     -- Initialize wave manager with current stage, spawn system, and deck manager (for intermission hooks)
     self.waveManager = WaveManager:new('level_1', self.gridMap.enemySpawnManager, self.deck)
+    -- Provide GridMap to WaveManager for path-effect clearing hooks
+    if self.waveManager then
+        self.waveManager.gridMap = self.gridMap
+    end
 end
 
 function Game:update(dt)
@@ -177,6 +181,8 @@ function Game:mousemoved(x, y, dx, dy)
         if tile then
             if cardDef and cardDef.type == 'modify_tower' then
                 eligible = self.gridMap:isOccupied(tile.x, tile.y)
+            elseif cardDef and cardDef.type == 'apply_path_effect' then
+                eligible = self.gridMap:isPathTile(tile.x, tile.y) and (not self.gridMap:hasPathEffect(tile.x, tile.y))
             else
                 -- Eligibility: must be build spot and not occupied
                 eligible = self.gridMap:isBuildSpot(tile.x, tile.y) and (not self.gridMap:isOccupied(tile.x, tile.y))
@@ -215,6 +221,19 @@ function Game:mousereleased(x, y, button)
         elseif def.type == 'modify_tower' and def.payload and def.payload.modifiers then
             if tile then
                 placed = self.gridMap:applyTowerModifiers(tile.x, tile.y, def.payload.modifiers, def)
+            else
+                placed = false
+            end
+        elseif def.type == 'apply_path_effect' and def.payload then
+            if tile then
+                local waveTag = nil
+                if self.waveManager and self.waveManager.getCurrentWaveIndex then
+                    waveTag = self.waveManager:getCurrentWaveIndex()
+                end
+                if waveTag == nil and self.waveManager and self.waveManager.getNextWaveIndex then
+                    waveTag = self.waveManager:getNextWaveIndex()
+                end
+                placed = self.gridMap:applyPathEffect(tile.x, tile.y, def.payload, def, waveTag)
             else
                 placed = false
             end

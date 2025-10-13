@@ -198,7 +198,7 @@ Config.DECK = {
     CARD_ART_OFFSET_Y = 15,
     CARD_HIT_SCALE = 1.5,
     -- Debug: show the interactive hit area used for hover/click on cards
-    SHOW_CARD_HITBOX = true,
+    SHOW_CARD_HITBOX = false,
     CARD_HITBOX_COLOR = {0.2, 1, 0.3, 0.65},
     CARD_HITBOX_HOVER_COLOR = {1, 0.9, 0.2, 0.85},
     CARD_HITBOX_LINE_WIDTH = 2,
@@ -267,6 +267,10 @@ Config.DECK = {
 Config.CARD_EFFECTS = {
     RANGE_INCREASE = {
         RANGE_PERCENT = 0.1
+    },
+    HASTE = {
+        FIRE_RATE_MULTIPLIER = 1.5, -- 1.5x faster (i.e., cooldown ÷ 1.5)
+        DURATION_SECONDS = 6
     }
 }
 

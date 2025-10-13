@@ -70,6 +70,14 @@ function GridMap:init()
     if self.enemySpawnManager.setWorldParams then
         self.enemySpawnManager:setWorldParams(self.gridX, self.gridY, self.tileSize)
     end
+    -- Provide path effect accessor to enemy system so it can apply slows/damage while traversing
+    if self.enemySpawnManager.setPathEffectAccessor then
+        self.enemySpawnManager:setPathEffectAccessor(function(x, y)
+            if not self.pathEffects then return nil end
+            local key = tostring(x) .. "," .. tostring(y)
+            return self.pathEffects[key]
+        end)
+    end
     if self.onEnemyKilled then
         self.enemySpawnManager.onEnemyKilled = self.onEnemyKilled
     end
@@ -81,6 +89,9 @@ function GridMap:init()
     self.hoverGlow = Moonshine(Config.LOGICAL_WIDTH, Config.LOGICAL_HEIGHT, Moonshine.effects.glow)
     self.hoverGlow.glow.min_luma = 0.0
     self.hoverGlow.glow.strength = 5
+    -- Path effects storage (per-tile) and visuals cache
+    self.pathEffects = {}
+    self._bonechillSprites = nil
 end
 
 function GridMap:hideUpgradeMenu(force)
@@ -298,6 +309,34 @@ function GridMap:draw()
         
         -- Draw towers and enemies in pass 4 (above paths, below special tiles)
         if pass == 4 then
+            -- Draw tile effects beneath enemies/towers
+            if self.pathEffects then
+                for _, eff in pairs(self.pathEffects) do
+                    local cx = self.gridX + (eff.x - 0.5) * self.tileSize
+                    local cy = self.gridY + (eff.y - 0.5) * self.tileSize
+                    local radius = self.tileSize * 0.5
+                    if eff.id == 'bonechill_mist' then
+                        local sprites = eff.sprites or loadBonechillSprites(self)
+                        if sprites and sprites.a and sprites.b then
+                            local scale = (self.tileSize / sprites.a:getWidth())
+                            local alphaA = 1 - (eff.crossfade or 0)
+                            local alphaB = (eff.crossfade or 0)
+                            love.graphics.setBlendMode('alpha')
+                            love.graphics.setColor(1, 1, 1, 0.8 * alphaA)
+                            love.graphics.draw(sprites.a, cx, cy, 0, scale, scale, sprites.a:getWidth() * 0.5, sprites.a:getHeight() * 0.5)
+                            love.graphics.setColor(1, 1, 1, 0.8 * alphaB)
+                            love.graphics.draw(sprites.b, cx, cy, 0, scale, scale, sprites.b:getWidth() * 0.5, sprites.b:getHeight() * 0.5)
+                            love.graphics.setColor(1,1,1,1)
+                        else
+                            -- fallback: cyan soft circle
+                            Theme.drawAdditiveCircleFill(cx, cy, radius, 0.15)
+                            love.graphics.setColor(0.6, 0.9, 1.0, 0.65)
+                            love.graphics.circle('line', cx, cy, radius)
+                            love.graphics.setColor(1,1,1,1)
+                        end
+                    end
+                end
+            end
             self.towerManager:draw(self.gridX, self.gridY, self.tileSize)
             self.enemySpawnManager:draw(self.gridX, self.gridY, self.tileSize)
             -- Optional in-world core HP bar (disabled by default in favor of HUD)
@@ -483,6 +522,70 @@ function GridMap:isBuildSpot(x, y)
     return false
 end
 
+function GridMap:isPathTile(x, y)
+    if not self.layers or not self.layers[1] or not self.layers[1].matrix then return false end
+    local tile = self.layers[1].matrix[x] and self.layers[1].matrix[x][y]
+    return tile and tile.type == 'path'
+end
+
+function GridMap:hasPathEffect(x, y)
+    if not self.pathEffects then return false end
+    local key = tostring(x) .. "," .. tostring(y)
+    return self.pathEffects[key] ~= nil
+end
+
+local function loadBonechillSprites(self)
+    if self._bonechillSprites ~= nil then return self._bonechillSprites end
+    local paths = {
+        'assets/images/effects/bonechill_mist_1a.png',
+        'assets/images/effects/bonechill_mist_1b.png'
+    }
+    local a, b = nil, nil
+    if love.filesystem.getInfo(paths[0+1]) then
+        a = love.graphics.newImage(paths[0+1])
+        if a.setFilter then a:setFilter('linear', 'linear') end
+    end
+    if love.filesystem.getInfo(paths[0+2]) then
+        b = love.graphics.newImage(paths[0+2])
+        if b.setFilter then b:setFilter('linear', 'linear') end
+    end
+    self._bonechillSprites = { a = a, b = b }
+    return self._bonechillSprites
+end
+
+function GridMap:applyPathEffect(x, y, payload, cardDef, waveTag)
+    if not self:isPathTile(x, y) then return false end
+    if self:hasPathEffect(x, y) then return false end
+    self.pathEffects = self.pathEffects or {}
+    local key = tostring(x) .. "," .. tostring(y)
+    local sprites = loadBonechillSprites(self)
+    local effect = {
+        id = (payload and payload.effect) or 'bonechill_mist',
+        x = x,
+        y = y,
+        slowPercent = (payload and payload.slowPercent) or 0.2,
+        slowTicks = (payload and payload.slowTicks) or 3,
+        damagePerTick = (payload and payload.damagePerTick) or 0,
+        tickInterval = (payload and payload.tickInterval) or 0.5,
+        waveTag = waveTag,
+        -- visual state
+        t = 0,
+        crossfade = 0,
+        sprites = sprites
+    }
+    self.pathEffects[key] = effect
+    return true
+end
+
+function GridMap:clearWavePathEffects(waveTag)
+    if not self.pathEffects then return end
+    for k, eff in pairs(self.pathEffects) do
+        if eff.waveTag == waveTag then
+            self.pathEffects[k] = nil
+        end
+    end
+end
+
 function GridMap:isOccupied(x, y)
     for _, t in ipairs(self.towerManager:getTowers()) do
         if t.x == x and t.y == y then return true end
@@ -541,6 +644,21 @@ function GridMap:update(dt)
         self.enemySpawnManager,
         self.onHitScreenMove
     )
+
+    -- Animate path effects (e.g., Bonechill crossfade)
+    if self.pathEffects then
+        for _, eff in pairs(self.pathEffects) do
+            eff.t = (eff.t or 0) + dt
+            -- simple ping-pong crossfade 0..1..0 over ~2 seconds
+            local speed = 0.5 -- cycles per second
+            local phase = (eff.t * speed) % 2
+            if phase <= 1 then
+                eff.crossfade = phase
+            else
+                eff.crossfade = 2 - phase
+            end
+        end
+    end
 
     -- Animate range indicator rotation
     local rcfg = Config.TOWER.RANGE_INDICATOR or {}
@@ -610,8 +728,14 @@ function GridMap:drawInfoPanel()
         local titleH = titleFont:getHeight()
         local levelH = labelFont:getHeight()
         local lineH = valueFont:getHeight() + 6
-        local rows = 5
-        local panelH = pad + titleH + 6 + levelH + 8 + rows * lineH + pad
+		-- Determine dynamic panel height: base stats rows + optional buffs rows and divider
+		local statsRows = 5
+		local buffRows = 0
+		if infoTower.appliedBuffs then
+			for _, _ in pairs(infoTower.appliedBuffs) do buffRows = buffRows + 1 end
+		end
+		local dividerExtra = (buffRows > 0) and (8 + 1) or 0 -- spacing + 1px line
+		local panelH = pad + titleH + 6 + levelH + 8 + statsRows * lineH + dividerExtra + (buffRows * lineH) + pad
         -- update fade alpha
         self.infoPanelAlpha = math.min(1, (self.infoPanelAlpha or 0) + 6 * love.timer.getDelta())
         love.graphics.setColor(0, 0, 0, 0.3 * (self.infoPanelAlpha or 1))
@@ -630,7 +754,7 @@ function GridMap:drawInfoPanel()
             Theme.drawText(value, vx - w, ty, valueFont, {accent[1],accent[2],accent[3],(self.infoPanelAlpha or 1)})
             ty = ty + lineH
         end
-        if (infoTower.towerId or 'crossbow') == 'fire' then
+		if (infoTower.towerId or 'crossbow') == 'fire' then
             row('Fire Rate', string.format('%.2fs', stats.fireCooldown or 0))
             row('Range', tostring(stats.rangePx or (Config.TOWER.RANGE_TILES * self.tileSize)))
             row('Burn Damage', tostring(stats.burnDamage or 0))
@@ -643,6 +767,24 @@ function GridMap:drawInfoPanel()
             row('Fire Rate', string.format('%.1fs', stats.fireCooldown or 0))
             row('Range', tostring(stats.rangePx or (Config.TOWER.RANGE_TILES * self.tileSize)))
         end
+		-- Divider before buffs
+		if buffRows > 0 then
+			local lineX1 = x + pad
+			local lineX2 = x + panelW - pad
+			local lineY = ty + 4
+			love.graphics.setColor(1, 1, 1, 0.18 * (self.infoPanelAlpha or 1))
+			love.graphics.setLineWidth(1)
+			love.graphics.line(lineX1, lineY, lineX2, lineY)
+			love.graphics.setColor(1, 1, 1, 1)
+			love.graphics.setLineWidth(1)
+			ty = ty + 8
+			-- List applied buffs/cards (e.g., Extended Reach x1)
+			for _, entry in pairs(infoTower.appliedBuffs) do
+				local name = entry.name or 'Buff'
+				local count = entry.count or 1
+				row(name, string.format('x%d', count))
+			end
+		end
     else
         if self.infoPanelAlpha and self.infoPanelAlpha > 0 then
             self.infoPanelAlpha = math.max(0, self.infoPanelAlpha - 6 * love.timer.getDelta())

@@ -41,12 +41,28 @@ function EnemySpawnManager:new(mapData)
             return vec4(outc, px.a);
         }
     ]])
+    -- Colorize/tint shader: blends original RGB toward a target tint by amount, preserves alpha
+    self.colorizeShader = love.graphics.newShader([[
+        extern vec3 tint;
+        extern number amount; // 0..1
+        vec4 effect(vec4 color, Image tex, vec2 tc, vec2 _){
+            vec4 px = Texel(tex, tc);
+            float a = px.a * color.a;
+            vec3 mixed = mix(px.rgb, tint, clamp(amount, 0.0, 1.0));
+            return vec4(mixed, a);
+        }
+    ]])
     -- PostFX chains for hit bloom
     -- We keep a single chain sized to logical resolution and reuse it per enemy draw call
     self.hitGlow = moonshine(Config.LOGICAL_WIDTH, Config.LOGICAL_HEIGHT, moonshine.effects.glow)
     self.hitGlow.glow.min_luma = Config.ENEMY.HIT_GLOW_MIN_LUMA or 0.0
     self.hitGlow.glow.strength = Config.ENEMY.HIT_GLOW_STRENGTH or 10
     return self
+end
+
+-- Optional path effect accessor injected by GridMap
+function EnemySpawnManager:setPathEffectAccessor(fn)
+    self._pathEffectAccessor = fn
 end
 
 function EnemySpawnManager:setWorldParams(originX, originY, tileSize)
@@ -295,7 +311,8 @@ function EnemySpawnManager:requestSpawn(enemyId, spawnIndex, modifiers)
         kvx = 0, kvy = 0,
         krot = 0, krotVel = 0,
         -- damage over time / effects
-        burn = nil -- { damage, ticksLeft, tickInterval, timeSinceLast, dps } or nil
+        burn = nil, -- { damage, ticksLeft, tickInterval, timeSinceLast } or nil
+        chill = nil -- { slowPercent, damage, ticksLeft, tickInterval, timeSinceLast } or nil
     }
     applySpawnPathOffset(enemy, path)
     table.insert(self.enemies, enemy)
@@ -466,6 +483,43 @@ function EnemySpawnManager:update(dt)
                 goto continue_loop
             end
         end
+        -- process chill effect (similar to burn tick cadence; applies optional damage)
+        if e and e.chill and (e.hp > 0) then
+            e.chill.timeSinceLast = (e.chill.timeSinceLast or 0) + dt
+            local intervalC = e.chill.tickInterval or 0.5
+            while e.chill.ticksLeft and e.chill.ticksLeft > 0 and e.chill.timeSinceLast >= intervalC do
+                e.chill.timeSinceLast = e.chill.timeSinceLast - intervalC
+                e.chill.ticksLeft = e.chill.ticksLeft - 1
+                local dmg = math.max(0, e.chill.damage or 0)
+                if dmg > 0 then
+                    self:damageEnemy(i, dmg, nil, nil, nil, nil, 'chill')
+                    if not self.enemies[i] then break end
+                end
+            end
+            if not self.enemies[i] then
+                goto continue_loop
+            else
+                e = self.enemies[i]
+                -- Clear chill when ticks are exhausted; will be refreshed if on a mist tile during draw/update
+                if e.chill and (e.chill.ticksLeft or 0) <= 0 then
+                    e.chill = nil
+                end
+            end
+        end
+
+        -- Update chill visual fade in/out regardless of effect presence
+        do
+            local current = e.chillTint or 0
+            local target = (e.chill and (e.chill.slowPercent or 0) > 0) and 1 or 0
+            local rateIn = 8 -- per second
+            local rateOut = 5 -- per second
+            if target > current then
+                current = math.min(1, current + rateIn * dt)
+            else
+                current = math.max(0, current - rateOut * dt)
+            end
+            e.chillTint = current
+        end
         -- Decay hit flash
         if e.hitFlashTime and e.hitFlashTime > 0 then
             e.hitFlashTime = math.max(0, e.hitFlashTime - dt)
@@ -496,6 +550,13 @@ function EnemySpawnManager:update(dt)
             local a = path[e.pathIndex]
             local b = path[e.pathIndex + 1]
             local segmentTime = 1 / e.speedTilesPerSecond
+            -- Apply path-based slow from active chill
+            if e.chill and (e.chill.slowPercent or 0) > 0 then
+                local slowMul = math.max(0, 1 - (e.chill.slowPercent or 0))
+                if slowMul < 1 and slowMul > 0 then
+                    segmentTime = segmentTime / slowMul
+                end
+            end
             e.progress = e.progress + dt / segmentTime
             if e.progress >= 1 then
                 e.progress = e.progress - 1
@@ -550,6 +611,28 @@ function EnemySpawnManager:draw(originX, originY, tileSize)
         local bx, by = gridToPixels(b.x, b.y, originX, originY, tileSize)
         local x = ax + (bx - ax) * e.progress
         local y = ay + (by - ay) * e.progress
+        -- While traversing, apply/refresh chill based on current grid tile path effect (if any)
+        if self._pathEffectAccessor then
+            local gx = e.gridX
+            local gy = e.gridY
+            local pe = self._pathEffectAccessor(gx, gy)
+            if pe and pe.id == 'bonechill_mist' then
+                -- Refresh or apply chill with same stacking/refresh semantics as burn
+                local slowPercent = math.max(0, math.min(1, pe.slowPercent or 0))
+                local ticks = math.max(0, math.floor((pe.slowTicks or 0) + 0.5))
+                local interval = pe.tickInterval or 0.5
+                local dmg = math.max(0, math.floor((pe.damagePerTick or 0) + 0.5))
+                if e.chill then
+                    e.chill.slowPercent = math.max(e.chill.slowPercent or 0, slowPercent)
+                    e.chill.damage = math.max(e.chill.damage or 0, dmg)
+                    e.chill.ticksLeft = math.max(e.chill.ticksLeft or 0, ticks)
+                    e.chill.tickInterval = interval or (e.chill.tickInterval or 0.5)
+                    -- do not reset timeSinceLast
+                else
+                    e.chill = { slowPercent = slowPercent, damage = dmg, ticksLeft = ticks, tickInterval = interval, timeSinceLast = 0 }
+                end
+            end
+        end
         -- Bobbing: sinusoidal vertical offset
         local bob = math.sin(e.t * e.bobFreq + e.bobPhase) * (tileSize * e.bobAmp)
         y = y - bob
@@ -570,7 +653,19 @@ function EnemySpawnManager:draw(originX, originY, tileSize)
             local drawY = y + (tileSize - sprite:getHeight() * scaleY) / 2
             local cx = drawX + (sprite:getWidth() * scaleX) / 2
             local cy = drawY + (sprite:getHeight() * scaleY) / 2
+            -- Draw base sprite
+            love.graphics.setColor(1, 1, 1, 1)
             love.graphics.draw(sprite, cx, cy, (e.krot or 0), scaleX, scaleY, sprite:getWidth()/2, sprite:getHeight()/2)
+            -- Colorize with shader when chilled so dark sprites visibly tint
+            if (e.chillTint or 0) > 0 and self.colorizeShader then
+                local prevShader = love.graphics.getShader()
+                -- Darker blue tint with fade-in/out amount
+                self.colorizeShader:send('tint', {0.10, 0.35, 0.80})
+                self.colorizeShader:send('amount', (e.chillTint or 0) * 0.3)
+                love.graphics.setShader(self.colorizeShader)
+                love.graphics.draw(sprite, cx, cy, (e.krot or 0), scaleX, scaleY, sprite:getWidth()/2, sprite:getHeight()/2)
+                love.graphics.setShader(prevShader)
+            end
             -- White flash overlay using shader + strong bloom via moonshine glow
             if e.hitFlashTime and e.hitFlashTime > 0 then
                 local dur = Config.ENEMY.HIT_FLASH_DURATION or 0.12

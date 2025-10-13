@@ -8,20 +8,16 @@ return {
 
 	waves = {
 		{
-			name = 'Opening',
-			reward = 50,
 			schedule = {
-				T.burstAt(0, 'enemy_1', 3, 0.5, 1),
-				T.burstAfter(2, 'enemy_1', 4, 0.25, 1),
+				T.burstAt(0, 'enemy_1', 1, 0.5, 1),
+				T.burstAfter(2, 'enemy_1', 2, 0.25, 1),
 				-- fan from second spawn concurrently
-					T.burstAt(1.5, 'enemy_1', 3, 0.4, 2)
+					T.burstAt(1.5, 'enemy_1', 3, 0.4, 2, { jitter = 1 })
 			}
 		},
 		{
-			name = 'AfterEnd Demo',
-			reward = 60,
 			schedule = {
-				T.burstAt(0, 'enemy_1', 3, 0.35, 1),
+				T.burstAt(0, 'enemy_1', 3, 0.35, 1, { jitter = 0.2 }),
 				-- start 1.5s after the previous event finishes
 				T.burstAfterEnd(1.5, 'enemy_1', 5, 0.2, 2),
 				-- occasional brute
@@ -30,8 +26,6 @@ return {
 		},
 		-- New Wave 3 focusing on enemy_2
 		{
-			name = 'Brute Push',
-			reward = 80,
 			schedule = {
 				-- opening half: enemy_1 from both spawns
 				T.burstAt(0, 'enemy_1', 6, 0.65, 1, { jitter = 0.2 }),

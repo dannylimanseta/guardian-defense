@@ -54,22 +54,39 @@ cards.catalog = {
                 rangePercent = Config.CARD_EFFECTS.RANGE_INCREASE.RANGE_PERCENT
             }
         }
+    },
+    bonechill_mist = {
+        id = "bonechill_mist",
+        name = "Bonechill Mist",
+        type = "apply_path_effect",
+        cost = 0,
+        requiresTarget = true,
+        description = "For this wave only, Slows enemies walking through the mist. Deals damage at higher levels.",
+        level = 1,
+        payload = {
+            effect = "bonechill_mist",
+            slowPercent = 0.20, -- 20% slow at L1
+            slowTicks = 3,      -- lasts 3 ticks (stack/refresh like burn)
+            damagePerTick = 0,  -- L1 no damage; future levels add damage
+            tickInterval = 0.5  -- seconds per tick (mirrors burn cadence)
+        }
     }
 }
 
 cards.starter_deck = {
     "crossbow_basic",
+    "crossbow_basic",
+    "crossbow_basic",
     "fire_basic",
     "fire_basic",
     "crossbow_basic",
-    "crossbow_basic",
-    "extended_reach"
+    "extended_reach",
+    "bonechill_mist",
+    "bonechill_mist",
+    "energy_shield"
 }
 
-cards.starter_hand_guarantees = {
-    "crossbow_basic",
-    "extended_reach"
-}
+-- no starter_hand_guarantees: all draws are random from the deck
 
 return cards
 

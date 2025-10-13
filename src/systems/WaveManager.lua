@@ -173,6 +173,17 @@ function WaveManager:update(dt)
                         self.enemySpawnManager:clearWaveShield(wave.index)
                     end
                 end
+                -- Clear any path effects tagged for this wave once enemies are cleared
+                if self.gridMap and self.gridMap.clearWavePathEffects then
+                    local enemies = (self.enemySpawnManager and self.enemySpawnManager.getEnemies) and self.enemySpawnManager:getEnemies() or nil
+                    local shouldDeferPE = (enemies ~= nil and #enemies > 0)
+                    if shouldDeferPE then
+                        -- reuse pendingShieldClear for deferred wave tags
+                        self.pendingShieldClear[#self.pendingShieldClear + 1] = wave.index
+                    else
+                        self.gridMap:clearWavePathEffects(wave.index)
+                    end
+                end
             end
         end
     end
@@ -186,6 +197,9 @@ function WaveManager:update(dt)
         if self.pendingShieldClear and #self.pendingShieldClear > 0 and noEnemies then
             for i = 1, #self.pendingShieldClear do
                 self.enemySpawnManager:clearWaveShield(self.pendingShieldClear[i])
+                if self.gridMap and self.gridMap.clearWavePathEffects then
+                    self.gridMap:clearWavePathEffects(self.pendingShieldClear[i])
+                end
             end
             self.pendingShieldClear = {}
         end

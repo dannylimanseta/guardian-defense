@@ -170,6 +170,17 @@ function TowerManager:applyModifiers(tower, modifiers, cardDef)
     mods.damageStacks = (mods.damageStacks or 0) + ((damagePercent ~= 0) and 1 or 0)
     tower.lastModifiedBy = cardDef and cardDef.id or nil
     tower.lastModifiedAt = love.timer and love.timer.getTime and love.timer.getTime() or nil
+    -- Track applied card/buff counts for display in info panel
+    tower.appliedBuffs = tower.appliedBuffs or {}
+    if cardDef and cardDef.id then
+        local key = tostring(cardDef.id)
+        local entry = tower.appliedBuffs[key]
+        if not entry then
+            entry = { name = cardDef.name or key, count = 0 }
+            tower.appliedBuffs[key] = entry
+        end
+        entry.count = (entry.count or 0) + 1
+    end
     return mods
 end
 
@@ -452,6 +463,12 @@ function TowerManager:draw(gridX, gridY, tileSize)
             self.towerFireSprite = love.graphics.newImage(path)
         end
     end
+    if not self.towerFireSprite2 then
+        local path = string.format('%s/%s', Config.ENTITIES_PATH, 'tower_fire_2.png')
+        if love.filesystem.getInfo(path) then
+            self.towerFireSprite2 = love.graphics.newImage(path)
+        end
+    end
     if not self.fireParticleSprite then
         local path = string.format('%s/%s', Config.ENTITIES_PATH, 'projectile_fire_1.png')
         if love.filesystem.getInfo(path) then
@@ -503,7 +520,13 @@ function TowerManager:draw(gridX, gridY, tileSize)
         local isCrossbow = not isFire
         local turretSprite
         if isFire then
-            turretSprite = self.towerFireSprite
+            -- pick sprite by level for fire tower
+            local lvl = t.level or 1
+            if (lvl and lvl >= 2) and self.towerFireSprite2 then
+                turretSprite = self.towerFireSprite2
+            else
+                turretSprite = self.towerFireSprite
+            end
         else
             -- pick sprite by level for crossbow
             local lvl = t.level or 1

@@ -49,7 +49,7 @@ towers.defs = {
 				critChance = 0.0,
 				-- Fire cadence and reach
 				fireCooldown = 1.0,
-				rangePx = 110,       -- short range (about 1.5 tiles)
+				rangePx = 143,       -- +30% cone distance (was 110)
 				projectileSpeedTps = 12, -- slightly faster travel
 				projectileMaxDistancePx = 90, -- very short visible streak
 				projectileScale = 0.55,
@@ -64,7 +64,7 @@ towers.defs = {
 					name = 'Fire Tower',
 					damageMin = 0, damageMax = 0, critDamageMin = 0, critDamageMax = 0, critChance = 0.0,
 					fireCooldown = 0.9,
-					rangePx = 130,
+					rangePx = 169, -- +30% (was 130)
 					projectileSpeedTps = 13,
 					projectileMaxDistancePx = 110,
 					projectileScale = 0.58,

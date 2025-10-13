@@ -19,22 +19,7 @@ local function shuffleInPlace(t)
     end
 end
 
-local function ensureStarterMinimums(drawPile, requiredList)
-    if not requiredList or #requiredList == 0 then return end
-    local counts = {}
-    for i = 1, #drawPile do
-        local id = drawPile[i]
-        counts[id] = (counts[id] or 0) + 1
-    end
-    for i = 1, #requiredList do
-        local id = requiredList[i]
-        if (counts[id] or 0) > 0 then
-            counts[id] = counts[id] - 1
-        else
-            drawPile[#drawPile + 1] = id
-        end
-    end
-end
+-- removed starter minimum guarantees: deck is now purely random from starter list/save
 
 function DeckManager:new()
     local self = setmetatable({}, DeckManager)
@@ -75,7 +60,7 @@ function DeckManager:loadOrCreateDeck()
     if #self.drawPile == 0 then
         self.drawPile = shallowCopy(CardsData.starter_deck)
     end
-    ensureStarterMinimums(self.drawPile, CardsData.starter_hand_guarantees)
+    -- no guaranteed-first-draw; shuffle the pile as-is
     shuffleInPlace(self.drawPile)
 end
 
