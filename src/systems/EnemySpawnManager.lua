@@ -595,6 +595,32 @@ function EnemySpawnManager:update(dt)
         f.age = f.age + dt
         if f.age >= f.life then table.remove(self.floaters, i) end
     end
+
+    -- Update core shield visual: pulsate, bounce, and fade in/out
+    do
+        local vis = self.coreShieldVisual
+        if vis then
+            local hasShield = (self.coreShieldHp or 0) > 0
+            -- time accumulators for pulsation/bounce
+            vis.time = (vis.time or 0) + dt
+            vis.pulse = (vis.pulse or 0) + dt
+            vis.bounceT = (vis.bounceT or 0) + dt
+            -- fade toward target alpha
+            local target = hasShield and 1 or 0
+            local inRate = 4   -- alpha per second
+            local outRate = 3  -- alpha per second
+            vis.alpha = vis.alpha or 0
+            if target > vis.alpha then
+                vis.alpha = math.min(1, vis.alpha + inRate * dt)
+            elseif target < vis.alpha then
+                vis.alpha = math.max(0, vis.alpha - outRate * dt)
+            end
+            -- mark inactive when fully faded
+            if not hasShield and (vis.alpha or 0) <= 0 then
+                vis.active = false
+            end
+        end
+    end
 end
 
 function EnemySpawnManager:draw(originX, originY, tileSize)

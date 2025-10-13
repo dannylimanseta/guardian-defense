@@ -17,6 +17,17 @@ local Game = {}
 function Game:init()
     -- Initialize resolution system first
     ResolutionManager:init()
+    -- Seed RNG (Lua and LÖVE) so shuffles vary between runs
+    do
+        local tms = (love.timer and love.timer.getTime and love.timer.getTime() or 0)
+        local seed = os.time() + math.floor(tms * 1000)
+        if love.math and love.math.setRandomSeed then
+            love.math.setRandomSeed(seed)
+        end
+        math.randomseed(seed)
+        -- warm up
+        math.random(); math.random(); math.random()
+    end
     
     -- Initialize game systems
     self.bus = EventBus:new()

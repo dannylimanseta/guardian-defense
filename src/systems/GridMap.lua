@@ -297,15 +297,16 @@ function GridMap:draw()
 						local iw, ih = img:getWidth(), img:getHeight()
 						local centerX = self.gridX + pcx
 						local centerY = self.gridY + pcy - 23 - (bounce - 1) * 10
-						local prevBlend, prevAlpha = love.graphics.getBlendMode()
-						love.graphics.setBlendMode('add')
-						love.graphics.setColor(1, 1, 1, baseAlpha)
-						love.graphics.draw(img, centerX, centerY, 0, scale * bounce, scale * bounce, iw / 2, ih / 2)
-						if prevBlend then
-							love.graphics.setBlendMode(prevBlend, prevAlpha)
-						else
-							love.graphics.setBlendMode('alpha')
-						end
+					local prevBlend, prevAlpha = love.graphics.getBlendMode()
+					love.graphics.setBlendMode('add')
+					-- Core sprite only (no glow/aura)
+					love.graphics.setColor(1, 1, 1, baseAlpha)
+					love.graphics.draw(img, centerX, centerY, 0, scale * bounce, scale * bounce, iw / 2, ih / 2)
+					if prevBlend then
+						love.graphics.setBlendMode(prevBlend, prevAlpha)
+					else
+						love.graphics.setBlendMode('alpha')
+					end
 						love.graphics.setColor(1,1,1,1)
 					end
 				end
@@ -766,7 +767,10 @@ function GridMap:drawInfoPanel()
 		local statsRows = 5
 		local buffRows = 0
 		if infoTower.appliedBuffs then
-			for _, _ in pairs(infoTower.appliedBuffs) do buffRows = buffRows + 1 end
+			for k, entry in pairs(infoTower.appliedBuffs) do
+				-- Skip temporary buffs (e.g., Haste) in the info panel
+				if not entry.temporary then buffRows = buffRows + 1 end
+			end
 		end
 		local dividerExtra = (buffRows > 0) and (8 + 1) or 0 -- spacing + 1px line
 		local panelH = pad + titleH + 6 + levelH + 8 + statsRows * lineH + dividerExtra + (buffRows * lineH) + pad
@@ -812,11 +816,13 @@ function GridMap:drawInfoPanel()
 			love.graphics.setColor(1, 1, 1, 1)
 			love.graphics.setLineWidth(1)
 			ty = ty + 8
-			-- List applied buffs/cards (e.g., Extended Reach x1)
+			-- List applied buffs/cards (exclude temporary buffs like Haste)
 			for _, entry in pairs(infoTower.appliedBuffs) do
-				local name = entry.name or 'Buff'
-				local count = entry.count or 1
-				row(name, string.format('x%d', count))
+				if not entry.temporary then
+					local name = entry.name or 'Buff'
+					local count = entry.count or 1
+					row(name, string.format('x%d', count))
+				end
 			end
 		end
     else

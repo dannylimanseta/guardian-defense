@@ -203,7 +203,7 @@ function TowerManager:applyTowerBuff(tower, payload, cardDef)
         local key = (cardDef and cardDef.id) or 'haste'
         local entry = tower.appliedBuffs[key]
         if not entry then
-            entry = { name = (cardDef and cardDef.name) or 'Haste', count = 0 }
+            entry = { name = (cardDef and cardDef.name) or 'Haste', count = 0, temporary = true }
             tower.appliedBuffs[key] = entry
         end
         entry.count = (entry.count or 0) + 1
