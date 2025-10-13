@@ -63,6 +63,7 @@ function HandUI:new(deckManager)
     self.fxCardGlow = nil
     self.fxCardGlowWarned = false
     self.time = 0
+    self.cursorHiddenForTargeting = false
     -- Intermission transition state
     self.prevIntermissionSerial = (deckManager and deckManager.getIntermissionSerial and deckManager:getIntermissionSerial()) or 0
     self.intermission = {
@@ -1062,6 +1063,10 @@ function HandUI:draw()
         local def = self.deck:getCardDef((self.drag and self.drag.cardId))
         local isTargeting = not def or (def.requiresTarget ~= false)
         if isTargeting then
+            if not self.cursorHiddenForTargeting then
+                self.cursorHiddenForTargeting = true
+                love.mouse.setVisible(false)
+            end
             local arrow = Config.DECK.ARROW or {}
             local color = arrow.COLOR or {1,1,1,0.85}
             local width = arrow.WIDTH or 3
@@ -1177,6 +1182,16 @@ function HandUI:draw()
                 love.graphics.polygon('fill', p1x, p1y, p2x, p2y, p3x, p3y, p4x, p4y)
                 prevX, prevY, prevNX, prevNY, prevW = curX, curY, curNX, curNY, wseg
             end
+        else
+            if self.cursorHiddenForTargeting then
+                self.cursorHiddenForTargeting = false
+                love.mouse.setVisible(true)
+            end
+        end
+    else
+        if self.cursorHiddenForTargeting then
+            self.cursorHiddenForTargeting = false
+            love.mouse.setVisible(true)
         end
     end
 

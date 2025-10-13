@@ -22,6 +22,20 @@ function GridMap:new()
     return self
 end
 
+function GridMap:triggerEntranceFade()
+	-- Collect entrance tiles and reset fade timers
+	self._entranceTiles = {}
+	for _, layer in ipairs(self.layers or {}) do
+		for _, tile in ipairs(layer.tiles or {}) do
+			if tile.type == 'entrance' then
+				tile.opacity = 0
+				table.insert(self._entranceTiles, tile)
+			end
+		end
+	end
+	self._entranceFadeT = 0
+end
+
 function GridMap:init()
     -- Load map from TMX
     self.mapData = MapLoader:load("level_1")
@@ -38,6 +52,19 @@ function GridMap:init()
     self.tiles = self.mapData.tiles
     self.layers = self.mapData.layers
     self.specialTiles = self.mapData.special
+	-- Ensure entrance tiles start invisible; fade will be triggered on wave start
+	for _, layer in ipairs(self.layers or {}) do
+		for _, tile in ipairs(layer.tiles or {}) do
+			if tile.type == 'entrance' then
+				tile.opacity = 0
+			end
+		end
+	end
+	-- Entrance fade parameters (triggered on wave start)
+	self._entranceTiles = nil
+	self._entranceFadeT = 0
+	self._entranceFadeDur = 0.2 -- quick fade-in
+	self._entranceFadeDelay = 0 -- no delay before fade starts
     self.towerManager = TowerManager:new()
     self.projectileManager = ProjectileManager:new()
     self.upgradeMenu = {
@@ -679,6 +706,20 @@ function GridMap:update(dt)
         self.enemySpawnManager,
         self.onHitScreenMove
     )
+
+	-- Fade-in entrance tiles
+	if self._entranceTiles and #self._entranceTiles > 0 then
+		self._entranceFadeT = (self._entranceFadeT or 0) + dt
+		local dur = self._entranceFadeDur or 0.25
+		local delay = self._entranceFadeDelay or 0
+		local a = math.max(0, math.min(1, (self._entranceFadeT - delay) / math.max(0.0001, dur)))
+		for i = #self._entranceTiles, 1, -1 do
+			local t = self._entranceTiles[i]
+			if t then t.opacity = a end
+			if a >= 1 then table.remove(self._entranceTiles, i) end
+		end
+		if a >= 1 then self._entranceTiles = nil end
+	end
 
     -- Animate path effects (e.g., Bonechill crossfade)
     if self.pathEffects then

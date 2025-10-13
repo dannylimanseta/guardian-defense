@@ -66,6 +66,9 @@ function Game:init()
     self.effect = nil
     self.postFXEnabled = false
     
+    -- Set custom mouse cursor if available
+    self:setCustomCursor()
+
     -- HUD assets
     self.coinIcon = nil
     self.coinCount = 0
@@ -167,6 +170,9 @@ function Game:keypressed(key)
     elseif key == "space" then
         -- Start next wave (supports overlap)
         if self.waveManager and self.waveManager.startNextWave and self.isStartWaveEligible and self:isStartWaveEligible() then
+            if self.gridMap and self.gridMap.triggerEntranceFade then
+                self.gridMap:triggerEntranceFade()
+            end
             self.waveManager:startNextWave()
         end
     end
@@ -182,6 +188,9 @@ function Game:mousepressed(x, y, button)
         local r = self.startWaveButtonRect
         if gameX >= r.x and gameX <= r.x + r.w and gameY >= r.y and gameY <= r.y + r.h then
             if self.waveManager and self.waveManager.startNextWave and self:isStartWaveEligible() and (self.startWaveButtonAlpha or 0) > 0.9 then
+                if self.gridMap and self.gridMap.triggerEntranceFade then
+                    self.gridMap:triggerEntranceFade()
+                end
                 self.waveManager:startNextWave()
             end
             return
@@ -356,6 +365,42 @@ function Game:loadCoreHpIcon()
     end
     self.coreHpIcon = false
     return nil
+end
+
+function Game:setCustomCursor()
+    local filename = 'cursor.png'
+    local path = string.format('%s/%s', Config.ENTITIES_PATH, filename)
+    if love.filesystem.getInfo(path) then
+        local okData, imgData = pcall(love.image.newImageData, path)
+        if okData and imgData then
+            -- scale down by 2x for cursor
+            local w, h = imgData:getWidth(), imgData:getHeight()
+            local sw, sh = math.max(1, math.floor(w / 2)), math.max(1, math.floor(h / 2))
+            local okSmall, small = pcall(love.image.newImageData, sw, sh)
+            if okSmall and small then
+                small:mapPixel(function(x, y, r, g, b, a)
+                    local sx = math.min(w - 1, x * 2)
+                    local sy = math.min(h - 1, y * 2)
+                    local rr, gg, bb, aa = imgData:getPixel(sx, sy)
+                    return rr, gg, bb, aa
+                end)
+                local hotX, hotY = 0, 0
+                local okCursor, cursor = pcall(love.mouse.newCursor, small, hotX, hotY)
+                if okCursor and cursor then
+                    love.mouse.setCursor(cursor)
+                    return true
+                end
+            end
+            -- fallback to original if scaling failed
+            local hotX, hotY = 0, 0
+            local okCursor, cursor = pcall(love.mouse.newCursor, imgData, hotX, hotY)
+            if okCursor and cursor then
+                love.mouse.setCursor(cursor)
+                return true
+            end
+        end
+    end
+    return false
 end
 
 function Game:getCoinCount()
