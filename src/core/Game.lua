@@ -10,6 +10,7 @@ local HandUI = require 'src/ui/HandUI'
 -- local moonshine = require 'src/libs/moonshine'
 local WaveManager = require 'src/systems/WaveManager'
 local EventBus = require 'src/core/EventBus'
+local CardSystem = require 'src/systems/CardSystem'
 
 local Game = {}
 
@@ -215,59 +216,12 @@ function Game:mousereleased(x, y, button)
     -- Determine card definition and play it (energy deducted here)
     local def = self.deck:playCardFromHand(info.cardIndex)
     if not def then return end
-    local placed = false
-    local requiresTarget = (def.requiresTarget ~= false)
-    if requiresTarget then
-        local tile = self.gridMap:getTileAtPosition(gameX, gameY)
-        if def.type == 'place_tower' and def.payload and def.payload.tower then
-            if tile then
-                placed = self.gridMap:placeTowerAt(tile.x, tile.y, def.payload.tower, def.payload.level or 1)
-            else
-                placed = false
-            end
-        elseif def.type == 'modify_tower' and def.payload and def.payload.modifiers then
-            if tile then
-                placed = self.gridMap:applyTowerModifiers(tile.x, tile.y, def.payload.modifiers, def)
-            else
-                placed = false
-            end
-        elseif def.type == 'apply_path_effect' and def.payload then
-            if tile then
-                local waveTag = nil
-                if self.waveManager and self.waveManager.getCurrentWaveIndex then
-                    waveTag = self.waveManager:getCurrentWaveIndex()
-                end
-                if waveTag == nil and self.waveManager and self.waveManager.getNextWaveIndex then
-                    waveTag = self.waveManager:getNextWaveIndex()
-                end
-                placed = self.gridMap:applyPathEffect(tile.x, tile.y, def.payload, def, waveTag)
-            else
-                placed = false
-            end
-        elseif def.type == 'apply_tower_buff' and def.payload then
-            if tile then
-                placed = self.gridMap:applyTowerBuff(tile.x, tile.y, def.payload, def)
-            else
-                placed = false
-            end
-        end
-    else
-        -- Non-targeting: enforce drag-up threshold (already locked in HandUI)
-        if def.type == 'apply_core_shield' and def.payload and def.payload.shieldHp then
-            if self.gridMap and self.gridMap.enemySpawnManager and self.gridMap.enemySpawnManager.addCoreShield then
-                local waveTag = nil
-                if self.waveManager and self.waveManager.getCurrentWaveIndex then
-                    waveTag = self.waveManager:getCurrentWaveIndex()
-                end
-                if waveTag == nil and self.waveManager and self.waveManager.getNextWaveIndex then
-                    -- no wave active yet, tag for the upcoming wave once it begins
-                    waveTag = self.waveManager:getNextWaveIndex()
-                end
-                self.gridMap.enemySpawnManager:addCoreShield(def.payload.shieldHp, waveTag)
-                placed = true
-            end
-        end
-    end
+    local placed = CardSystem.play({
+        gridMap = self.gridMap,
+        waveManager = self.waveManager,
+        deck = self.deck,
+        bus = self.bus
+    }, def, { x = gameX, y = gameY })
     if not placed then
         -- refund energy and card if placement invalid
         self.deck:refundLastPlayed(def.id)
