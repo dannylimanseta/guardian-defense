@@ -787,12 +787,7 @@ end
 
 function HandUI:draw()
     local hand = self.deck:getHand()
-    local energy = self.deck:getEnergy()
-    local drawCount, discardCount = self.deck:getCounts()
-    -- HUD counters
-    local pad = 8
-    local text = string.format("Energy: %d   Draw: %d   Discard: %d", energy, drawCount, discardCount)
-    Theme.drawText(text, pad, Config.LOGICAL_HEIGHT - 24 - pad, Theme.FONTS.MEDIUM, Theme.COLORS.WHITE)
+
 
     -- Cards (fan layout)
     local n = #hand

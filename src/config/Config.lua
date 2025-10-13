@@ -48,6 +48,17 @@ Config.UI = {
         COLOR = {1, 1, 1, 1},
         SHADOW_COLOR = {0, 0, 0, 0.6}
     },
+    ENERGY_TRACKER = {
+        ICON = 'energy.png',
+        MARGIN = 18,
+        OFFSET_Y = 80,
+        ICON_SCALE = 0.35,
+        ICON_TEXT_SPACING = 12,
+        FONT = 'BOLD_LARGE',
+        COLOR = {1, 1, 1, 1},
+        SHADOW_COLOR = {0, 0, 0, 0.6},
+        GAP_FROM_COIN = 58
+    },
     TOWER_MENU = {
         WIDTH = 220,
         ROW_HEIGHT = 44,

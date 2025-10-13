@@ -139,6 +139,8 @@ function Game:draw()
         self:drawHUD()
     end
     self:drawCoinTracker()
+    self:drawEnergyTracker()
+    self:drawStartWaveButton()
     if self.gridMap and self.gridMap.drawUpgradeMenu then
         local costCheck = function(cost)
             return (self.coinCount or 0) >= (cost or 0)
@@ -164,7 +166,7 @@ function Game:keypressed(key)
         self.postFXEnabled = not self.postFXEnabled
     elseif key == "space" then
         -- Start next wave (supports overlap)
-        if self.waveManager and self.waveManager.startNextWave then
+        if self.waveManager and self.waveManager.startNextWave and self.isStartWaveEligible and self:isStartWaveEligible() then
             self.waveManager:startNextWave()
         end
     end
@@ -175,6 +177,16 @@ end
 function Game:mousepressed(x, y, button)
     -- Convert screen coordinates to game coordinates
     local gameX, gameY = ResolutionManager:screenToGame(x, y)
+    -- Handle Start Wave button click first
+    if self.startWaveButtonRect and button == 1 then
+        local r = self.startWaveButtonRect
+        if gameX >= r.x and gameX <= r.x + r.w and gameY >= r.y and gameY <= r.y + r.h then
+            if self.waveManager and self.waveManager.startNextWave and self:isStartWaveEligible() and (self.startWaveButtonAlpha or 0) > 0.9 then
+                self.waveManager:startNextWave()
+            end
+            return
+        end
+    end
     if self.handUI and self.handUI:mousepressed(gameX, gameY, button) then
         return
     end
@@ -255,9 +267,9 @@ function love.resize(width, height)
 end
 
 function Game:drawHUD()
-    -- Draw a compact numeric core health at the top-right of the logical canvas
+    -- Draw core health at top-right with icon, using Energy tracker font
     local padding = Config.UI.PANEL_PADDING or 8
-    local y = 8
+    local y = 8 + 50
 
     local coreHealth = 0
     local shield = 0
@@ -269,26 +281,40 @@ function Game:drawHUD()
     end
     local maxHealth = Config.GAME.CORE_HEALTH
 
-    -- Numeric only, e.g., "10/10"; append shield if present
-    local text
-    if (shield or 0) > 0 then
-        text = string.format("%d/%d  [Shield %d]", coreHealth, maxHealth, shield)
-    else
-        text = string.format("%d/%d", coreHealth, maxHealth)
+    local energyCfg = Config.UI.ENERGY_TRACKER or {}
+    local fontKey = energyCfg.FONT or 'BOLD_MEDIUM'
+    local font = Theme.FONTS[fontKey] or Theme.FONTS.BOLD_MEDIUM
+    local icon = self:loadCoreHpIcon()
+    local iconScale = 0.6
+    local iconTextSpacing = 10
+
+	local baseStr = string.format("%d/%d", coreHealth, maxHealth)
+	local shieldStr = ((shield or 0) > 0) and string.format("  +%d", shield) or ''
+	local baseW = font:getWidth(baseStr)
+	local shieldW = (shieldStr ~= '' and font:getWidth(shieldStr) or 0)
+	local textH = font:getHeight()
+    local iw, ih = 0, 0
+    if icon then iw, ih = icon:getWidth(), icon:getHeight() end
+	local contentW = baseW + shieldW + (icon and (iconTextSpacing + iw * iconScale) or 0)
+    local contentH = math.max(textH, icon and (ih * iconScale) or 0)
+    -- Position at top-right without panel box
+    local marginRight = 8 + 20
+    local x = (Config.LOGICAL_WIDTH or 0) - marginRight - contentW
+    local drawX = x
+    local centerY = y + contentH * 0.5
+    if icon then
+        love.graphics.setColor(1, 1, 1, 1)
+        local iconY = centerY - (ih * iconScale) * 0.5
+        love.graphics.draw(icon, drawX, iconY, 0, iconScale, iconScale)
+        drawX = drawX + iw * iconScale + iconTextSpacing
     end
-
-    local font = Theme.FONTS.MEDIUM
-    local textW = font:getWidth(text)
-    local textH = font:getHeight()
-    local panelWidth = textW + padding * 2
-    local panelHeight = textH + padding * 2
-    local x = (Config.LOGICAL_WIDTH or 0) - panelWidth - 8
-
-    Theme.drawPanel(x, y, panelWidth, panelHeight)
-    -- Right-align text inside the panel
-    local tx = x + panelWidth - padding - textW
-    local ty = y + padding
-    Theme.drawText(text, tx, ty, font, Theme.COLORS.WHITE)
+	-- draw base text and colored shield suffix
+	Theme.drawText(baseStr, drawX, centerY - textH * 0.5, font, Theme.COLORS.WHITE)
+	drawX = drawX + baseW
+	if shieldStr ~= '' then
+		local accent = {0.8627, 0.7608, 0.4588, 1} -- #DCC275
+		Theme.drawText(shieldStr, drawX, centerY - textH * 0.5, font, accent)
+	end
 end
 
 function Game:loadCoinIcon()
@@ -311,6 +337,24 @@ function Game:loadCoinIcon()
         end
     end
     self.coinIcon = false
+    return nil
+end
+
+function Game:loadCoreHpIcon()
+    if self.coreHpIcon ~= nil then return self.coreHpIcon end
+    local filename = 'vigil_core_hp.png'
+    local path = string.format('%s/%s', Config.ENTITIES_PATH, filename)
+    if love.filesystem.getInfo(path) then
+        local ok, img = pcall(love.graphics.newImage, path)
+        if ok and img then
+            if img.setFilter then
+                img:setFilter('linear', 'linear')
+            end
+            self.coreHpIcon = img
+            return img
+        end
+    end
+    self.coreHpIcon = false
     return nil
 end
 
@@ -486,6 +530,194 @@ function Game:drawCoinTracker()
 
     local text = tostring(coinCount)
     Theme.drawShadowText(text, x, y, font, color, shadowColor)
+end
+
+function Game:loadEnergyIcon()
+    if self.energyIcon ~= nil then return self.energyIcon end
+    local tracker = Config.UI.ENERGY_TRACKER
+    if not tracker then
+        self.energyIcon = false
+        return nil
+    end
+    local filename = tracker.ICON or 'energy.png'
+    local path = string.format('%s/%s', Config.ENTITIES_PATH, filename)
+    if love.filesystem.getInfo(path) then
+        local ok, img = pcall(love.graphics.newImage, path)
+        if ok and img then
+            if img.setFilter then
+                img:setFilter('linear', 'linear')
+            end
+            self.energyIcon = img
+            return img
+        end
+    end
+    self.energyIcon = false
+    return nil
+end
+
+function Game:getEnergy()
+    if self.deck and self.deck.getEnergy then
+        return self.deck:getEnergy()
+    end
+    return 0
+end
+
+function Game:drawEnergyTracker()
+    local tracker = Config.UI.ENERGY_TRACKER
+    if not tracker then return end
+
+    local icon = self:loadEnergyIcon()
+    local energy = self:getEnergy()
+
+    -- base the y/visual style on COIN_TRACKER to match
+    local coinCfg = Config.UI.COIN_TRACKER or {}
+    local margin = coinCfg.MARGIN or 16
+    local offsetY = coinCfg.OFFSET_Y or 0
+    local iconScale = tracker.ICON_SCALE or coinCfg.ICON_SCALE or 1
+    local iconTextSpacing = tracker.ICON_TEXT_SPACING or coinCfg.ICON_TEXT_SPACING or 8
+    local color = tracker.COLOR or coinCfg.COLOR or Theme.COLORS.WHITE
+    local shadowColor = tracker.SHADOW_COLOR or coinCfg.SHADOW_COLOR or {0, 0, 0, 0.6}
+    local fontKey = tracker.FONT or coinCfg.FONT or 'BOLD_MEDIUM'
+    local font = Theme.FONTS[fontKey] or Theme.FONTS.BOLD_MEDIUM
+
+    -- compute X to the right of coin tracker content
+    local x = (coinCfg.MARGIN or 16)
+    local y = (Config.LOGICAL_HEIGHT or 0) - margin - font:getHeight() - offsetY
+
+    -- account for coin icon + coin text width to start after it
+    do
+        local coinIcon = self:loadCoinIcon()
+        if coinIcon then
+            x = x + coinIcon:getWidth() * (coinCfg.ICON_SCALE or 1) + (coinCfg.ICON_TEXT_SPACING or 8)
+        end
+        local coinText = tostring(self:getCoinCount())
+        local coinFontKey = coinCfg.FONT or 'BOLD_MEDIUM'
+        local coinFont = Theme.FONTS[coinFontKey] or Theme.FONTS.BOLD_MEDIUM
+        x = x + coinFont:getWidth(coinText) + (tracker.GAP_FROM_COIN or 24)
+    end
+
+    if icon then
+        local iw, ih = icon:getWidth(), icon:getHeight()
+        local sx = iconScale
+        local sy = iconScale
+        local drawY = y + font:getHeight() * 0.5 - (ih * sy) * 0.5
+        love.graphics.setColor(1, 1, 1, 1)
+        love.graphics.draw(icon, x, drawY, 0, sx, sy)
+        x = x + iw * sx + iconTextSpacing
+    end
+
+    local text = tostring(energy)
+    Theme.drawShadowText(text, x, y, font, color, shadowColor)
+end
+
+function Game:loadKeySpaceIcon()
+    if self.keySpaceIcon ~= nil then return self.keySpaceIcon end
+    local filename = 'key_space.png'
+    local path = string.format('%s/%s', Config.ENTITIES_PATH, filename)
+    if love.filesystem.getInfo(path) then
+        local ok, img = pcall(love.graphics.newImage, path)
+        if ok and img then
+            if img.setFilter then
+                img:setFilter('linear', 'linear')
+            end
+            self.keySpaceIcon = img
+            return img
+        end
+    end
+    self.keySpaceIcon = false
+    return nil
+end
+
+function Game:drawStartWaveButton()
+    if not self.waveManager then return end
+    -- compute eligibility: show only when no active waves and no enemies are present
+    local eligible = self:isStartWaveEligible()
+    -- init and tween alpha
+    self.startWaveButtonAlpha = self.startWaveButtonAlpha or 0
+    local targetAlpha = eligible and 1 or 0
+    local dt = love.timer.getDelta and love.timer.getDelta() or 0.016
+    local speed = eligible and 6 or 10
+    self.startWaveButtonAlpha = self.startWaveButtonAlpha + (targetAlpha - self.startWaveButtonAlpha) * math.min(1, speed * dt)
+    local nextIdx = (self.waveManager.getNextWaveIndex and self.waveManager:getNextWaveIndex()) or 1
+    -- Use Energy tracker font for consistency
+    local energyCfg = Config.UI.ENERGY_TRACKER or {}
+    local fontKey = energyCfg.FONT or 'BOLD_MEDIUM'
+    local font = Theme.FONTS[fontKey] or Theme.FONTS.BOLD_MEDIUM
+    local label = string.format('Start Wave %d', nextIdx)
+
+    local icon = self:loadKeySpaceIcon()
+    local pad = (Config.UI.PANEL_PADDING or 8) + 6 -- more padding so button isn't tight
+    local margin = 18
+    local spacing = 10
+    local textW = font:getWidth(label)
+    local textH = font:getHeight()
+    local iw, ih = 0, 0
+    local scale = 1
+    if icon then
+        iw, ih = icon:getWidth(), icon:getHeight()
+        if ih > 0 then
+            scale = (textH / ih) * 0.5 * 0.6 -- previous 2x reduction, then reduce by 40%
+        else
+            scale = 0.3
+        end
+    end
+
+    local contentW = (icon and (iw * scale + spacing) or 0) + textW
+    local contentH = math.max(textH, icon and (ih * scale) or 0)
+    local boxW = math.floor(pad + contentW + pad)
+    local boxH = math.floor(pad + contentH + pad)
+    local x = (Config.LOGICAL_WIDTH or 0) - margin - boxW
+    local baseMargin = (Config.UI.COIN_TRACKER and Config.UI.COIN_TRACKER.MARGIN) or 16
+    local offsetY = (Config.UI.COIN_TRACKER and Config.UI.COIN_TRACKER.OFFSET_Y) or 0
+    local y = (Config.LOGICAL_HEIGHT or 0) - baseMargin - boxH - offsetY
+
+    -- Store rect for click handling
+    self.startWaveButtonRect = { x = x, y = y, w = boxW, h = boxH }
+
+    -- Hover scale (bounce)
+    self._startBtnHoverT = self._startBtnHoverT or 0
+    local gameMX, gameMY = ResolutionManager:screenToGame(love.mouse.getX(), love.mouse.getY())
+    local isHover = gameMX >= x and gameMX <= x + boxW and gameMY >= y and gameMY <= y + boxH
+    local hoverTarget = isHover and 1 or 0
+    self._startBtnHoverT = self._startBtnHoverT + (hoverTarget - self._startBtnHoverT) * math.min(1, 16 * (love.timer.getDelta() or 0.016))
+    local hoverScale = 1 + 0.10 * (self._startBtnHoverT or 0)
+    local cx = x + boxW * 0.5
+    local cy = y + boxH * 0.5
+    love.graphics.push()
+    love.graphics.translate(cx, cy)
+    love.graphics.scale(hoverScale, hoverScale)
+    love.graphics.translate(-cx, -cy)
+    -- Background box (30% black)
+    love.graphics.setColor(0, 0, 0, 0.3 * (self.startWaveButtonAlpha or 0))
+    love.graphics.rectangle('fill', x, y, boxW, boxH, 8, 8)
+
+    -- Draw icon and text
+    local drawX = x + pad
+    local centerY = y + boxH * 0.5
+    love.graphics.setColor(1, 1, 1, (self.startWaveButtonAlpha or 0))
+    if icon then
+        local iconH = ih * scale
+        local iconY = centerY - iconH * 0.5
+        love.graphics.draw(icon, drawX, iconY, 0, scale, scale)
+        drawX = drawX + iw * scale + spacing
+    end
+    Theme.drawText(label, drawX, centerY - textH * 0.5, font, {1,1,1,(self.startWaveButtonAlpha or 0)})
+    love.graphics.pop()
+end
+
+function Game:isStartWaveEligible()
+    if not self.waveManager then return false end
+    -- must have no active waves
+    local noActive = (self.waveManager.activeWavesCount and self.waveManager:activeWavesCount() == 0)
+    -- must have no enemies alive on map
+    local noEnemies = true
+    if self.gridMap and self.gridMap.enemySpawnManager and self.gridMap.enemySpawnManager.getEnemies then
+        local enemies = self.gridMap.enemySpawnManager:getEnemies()
+        noEnemies = (not enemies) or (#enemies == 0)
+    end
+    -- and there must be more waves left
+    local hasNext = (self.waveManager.getNextWaveIndex and self.waveManager.getNextWaveIndex(self.waveManager) <= #((self.waveManager.stage or {}).waves or {}))
+    return noActive and noEnemies and hasNext
 end
 
 function Game:attemptTowerUpgrade(tower, targetLevel, cost)

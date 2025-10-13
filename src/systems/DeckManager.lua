@@ -98,7 +98,7 @@ function DeckManager:onIntermissionStart(nextWaveIndex)
         toDeal = Config.DECK.INTERMISSION_DEAL or 0
     end
     if toDeal > 0 then
-        self:drawCards(toDeal)
+        self:drawCardsEnsureTower(toDeal)
     end
 end
 
@@ -119,6 +119,52 @@ function DeckManager:drawCards(n)
         local id = table.remove(self.drawPile)
         if not id then return end
         table.insert(self.hand, id)
+    end
+end
+
+-- Draw n cards, guaranteeing at least one tower (type == 'place_tower')
+-- if any tower cards remain in draw/discard piles. If none remain, falls back to normal draw.
+function DeckManager:drawCardsEnsureTower(n)
+    if n <= 0 then return end
+    -- Helper to try popping a tower card from draw pile; if none, reshuffle discard then retry
+    local function popTower()
+        -- search draw pile from top (end) to bottom
+        for i = #self.drawPile, 1, -1 do
+            local id = self.drawPile[i]
+            local def = self:getCardDef(id)
+            if def and def.type == 'place_tower' then
+                table.remove(self.drawPile, i)
+                return id
+            end
+        end
+        if #self.discardPile > 0 then
+            -- move discard to draw and shuffle, then search again
+            for j = 1, #self.discardPile do
+                table.insert(self.drawPile, self.discardPile[j])
+            end
+            self.discardPile = {}
+            shuffleInPlace(self.drawPile)
+            for i = #self.drawPile, 1, -1 do
+                local id = self.drawPile[i]
+                local def = self:getCardDef(id)
+                if def and def.type == 'place_tower' then
+                    table.remove(self.drawPile, i)
+                    return id
+                end
+            end
+        end
+        return nil
+    end
+
+    -- Try to reserve a tower card if available
+    local reservedTower = popTower()
+    if reservedTower then
+        -- Draw remaining n-1 normally, then add the reserved tower
+        self:drawCards(math.max(0, n - 1))
+        table.insert(self.hand, reservedTower)
+    else
+        -- No towers remain; draw normally
+        self:drawCards(n)
     end
 end
 
