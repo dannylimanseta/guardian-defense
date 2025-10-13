@@ -92,6 +92,7 @@ function TowerManager:new()
     self.towerCrossbowSprite = nil
     self.towerFireSprite = nil
     self.fireParticleSprite = nil
+    self.cardHasteSprite = nil
     return self
 end
 
@@ -184,6 +185,31 @@ function TowerManager:applyModifiers(tower, modifiers, cardDef)
     return mods
 end
 
+function TowerManager:applyTowerBuff(tower, payload, cardDef)
+    if not tower or not payload then return false end
+    tower.buffs = tower.buffs or {}
+    if (payload.buff == 'haste') or (payload.multiplier and payload.duration) then
+        local mult = payload.multiplier or ((Config.CARD_EFFECTS and Config.CARD_EFFECTS.HASTE and Config.CARD_EFFECTS.HASTE.FIRE_RATE_MULTIPLIER) or 1.5)
+        local dur = payload.duration or ((Config.CARD_EFFECTS and Config.CARD_EFFECTS.HASTE and Config.CARD_EFFECTS.HASTE.DURATION_SECONDS) or 6)
+        tower.buffs.haste = tower.buffs.haste or {}
+        tower.buffs.haste.multiplier = mult
+        tower.buffs.haste.duration = dur
+        tower.buffs.haste.remaining = dur
+        tower.buffs.haste.elapsed = 0
+        -- Track in buff list for UI panel
+        tower.appliedBuffs = tower.appliedBuffs or {}
+        local key = (cardDef and cardDef.id) or 'haste'
+        local entry = tower.appliedBuffs[key]
+        if not entry then
+            entry = { name = (cardDef and cardDef.name) or 'Haste', count = 0 }
+            tower.appliedBuffs[key] = entry
+        end
+        entry.count = (entry.count or 0) + 1
+        return true
+    end
+    return false
+end
+
 function TowerManager:update(dt, tileSize, enemies, projectiles, enemySpawnManager)
     for _, t in ipairs(self.towers) do
         if t.destroying then
@@ -203,7 +229,19 @@ function TowerManager:update(dt, tileSize, enemies, projectiles, enemySpawnManag
         end
         -- spawn anim timer
         t.spawnT = math.min((t.spawnT or 0) + dt, (Config.TOWER.SPAWN_ANIM and Config.TOWER.SPAWN_ANIM.DURATION) or 0)
-        t.cooldown = math.max(0, (t.cooldown or 0) - dt)
+        -- Haste: scale logical delta time for cooldown and emitter timing
+        local timeScale = 1
+        if t.buffs and t.buffs.haste and (t.buffs.haste.remaining or 0) > 0 then
+            t.buffs.haste.remaining = math.max(0, (t.buffs.haste.remaining or 0) - dt)
+            t.buffs.haste.elapsed = math.min((t.buffs.haste.duration or 0), (t.buffs.haste.elapsed or 0) + dt)
+            timeScale = t.buffs.haste.multiplier or 1
+            if (t.buffs.haste.remaining or 0) <= 0 then
+                t.buffs.haste = nil
+                timeScale = 1
+            end
+        end
+        local dtLogic = dt * timeScale
+        t.cooldown = math.max(0, (t.cooldown or 0) - dtLogic)
         -- Acquire target in range: prioritize closest to core (furthest along path)
         local stats = self:getEffectiveStats(t)
         local best, bestPriority
@@ -241,7 +279,7 @@ function TowerManager:update(dt, tileSize, enemies, projectiles, enemySpawnManag
                 t.targetEnemy = best.enemy
                 t.acquireTimer = Config.TOWER.FIRE_ACQUIRE_DELAY or 0
             else
-                t.acquireTimer = math.max(0, (t.acquireTimer or 0) - dt)
+                t.acquireTimer = math.max(0, (t.acquireTimer or 0) - dtLogic)
             end
         else
             t.targetEnemy = nil
@@ -268,7 +306,7 @@ function TowerManager:update(dt, tileSize, enemies, projectiles, enemySpawnManag
                 local px = originX + math.cos(t.angleCurrent or 0) * muzzleOffset
                 local py = originY + math.sin(t.angleCurrent or 0) * muzzleOffset
                 local emitRate = 120 -- particles per second
-                t.emitter.emitAcc = (t.emitter.emitAcc or 0) + dt * emitRate
+                t.emitter.emitAcc = (t.emitter.emitAcc or 0) + dtLogic * emitRate
                 while t.emitter.emitAcc >= 1 do
                     t.emitter.emitAcc = t.emitter.emitAcc - 1
                     local spread = 0.5 -- tighter cone to avoid far strays
@@ -287,7 +325,7 @@ function TowerManager:update(dt, tileSize, enemies, projectiles, enemySpawnManag
                         rot = math.random() * math.pi * 2
                     }
                 end
-                t.emitter.trailAcc = (t.emitter.trailAcc or 0) + dt
+                t.emitter.trailAcc = (t.emitter.trailAcc or 0) + dtLogic
                 if t.emitter.trailAcc >= 0.02 then
                     t.emitter.trailAcc = 0
                     t.emitter.trail[#t.emitter.trail + 1] = { x = px, y = py, age = 0, life = 0.18 }
@@ -324,7 +362,7 @@ function TowerManager:update(dt, tileSize, enemies, projectiles, enemySpawnManag
             
             -- decrement contact cooldowns
             for eRef, cd in pairs(t.fireContactCooldown) do
-                t.fireContactCooldown[eRef] = math.max(0, (cd or 0) - dt)
+                t.fireContactCooldown[eRef] = math.max(0, (cd or 0) - dtLogic)
             end
             -- apply burn to enemies within cone
             if enemySpawnManager then
@@ -602,6 +640,34 @@ function TowerManager:draw(gridX, gridY, tileSize)
                 turretSprite:getWidth() / 2,
                 turretSprite:getHeight() / 2
             )
+            -- Haste overlay (pulsating) above the tower when active
+            if t.buffs and t.buffs.haste then
+                if not self.cardHasteSprite then
+                    -- Haste overlay icon in cards folder
+                    local path = 'assets/images/cards/icon_haste.png'
+                    if love.filesystem.getInfo(path) then
+                        self.cardHasteSprite = love.graphics.newImage(path)
+                    end
+                end
+                local img = self.cardHasteSprite
+                if img then
+                    local rem = t.buffs.haste.remaining or 0
+                    local durH = t.buffs.haste.duration or 1
+                    local el = (t.buffs.haste.elapsed or (durH - rem))
+                    local uIn = math.min(1, el / 0.25)
+                    local uOut = math.min(1, (rem) / 0.25)
+                    local fade = math.min(uIn, uOut)
+                    local pulse = 0.5 + 0.5 * math.sin((love.timer and love.timer.getTime and love.timer.getTime() or 0) * 8)
+                    local alphaH = 0.7 * fade * (0.7 + 0.3 * pulse)
+                    local scaleImg = (tileSize / img:getWidth()) * (0.8 + 0.08 * pulse)
+                    local ix = cx
+                    local iy = (tileY + tileSize * 0.5 + (t.destroyOffsetY or 0)) - tileSize + 20
+                    love.graphics.setColor(1, 1, 1, alphaH)
+                    love.graphics.setBlendMode('add')
+                    love.graphics.draw(img, ix, iy, 0, scaleImg, scaleImg, img:getWidth()/2, img:getHeight()/2)
+                    love.graphics.setBlendMode('alpha')
+                end
+            end
         end
     end
     love.graphics.setColor(1,1,1,1)

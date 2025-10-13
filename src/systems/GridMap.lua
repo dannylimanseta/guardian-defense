@@ -615,6 +615,19 @@ function GridMap:applyTowerModifiers(x, y, modifiers, cardDef)
     return true
 end
 
+function GridMap:applyTowerBuff(x, y, payload, cardDef)
+    local tower = self.towerManager:getTowerAt(x, y)
+    if not tower then return false end
+    local ok = self.towerManager:applyTowerBuff(tower, payload, cardDef)
+    if not ok then return false end
+    if not self.selectedTile or self.selectedTile.x ~= x or self.selectedTile.y ~= y then
+        self.selectedTile = { x = x, y = y }
+    end
+    self.rangeBounceT = 0
+    self.rangeAlpha = 1
+    return true
+end
+
 function GridMap:update(dt)
     -- Update enemy system
     self.enemySpawnManager:update(dt)

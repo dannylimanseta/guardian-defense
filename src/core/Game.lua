@@ -183,6 +183,8 @@ function Game:mousemoved(x, y, dx, dy)
                 eligible = self.gridMap:isOccupied(tile.x, tile.y)
             elseif cardDef and cardDef.type == 'apply_path_effect' then
                 eligible = self.gridMap:isPathTile(tile.x, tile.y) and (not self.gridMap:hasPathEffect(tile.x, tile.y))
+            elseif cardDef and cardDef.type == 'apply_tower_buff' then
+                eligible = self.gridMap:isOccupied(tile.x, tile.y)
             else
                 -- Eligibility: must be build spot and not occupied
                 eligible = self.gridMap:isBuildSpot(tile.x, tile.y) and (not self.gridMap:isOccupied(tile.x, tile.y))
@@ -234,6 +236,12 @@ function Game:mousereleased(x, y, button)
                     waveTag = self.waveManager:getNextWaveIndex()
                 end
                 placed = self.gridMap:applyPathEffect(tile.x, tile.y, def.payload, def, waveTag)
+            else
+                placed = false
+            end
+        elseif def.type == 'apply_tower_buff' and def.payload then
+            if tile then
+                placed = self.gridMap:applyTowerBuff(tile.x, tile.y, def.payload, def)
             else
                 placed = false
             end

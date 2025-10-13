@@ -55,6 +55,20 @@ cards.catalog = {
             }
         }
     },
+    haste = {
+        id = "haste",
+        name = "Haste",
+        type = "apply_tower_buff",
+        cost = 0,
+        requiresTarget = true,
+        description = "Target tower: +50% fire rate for 6s.",
+        level = 1,
+        payload = {
+            buff = "haste",
+            multiplier = Config.CARD_EFFECTS.HASTE.FIRE_RATE_MULTIPLIER,
+            duration = Config.CARD_EFFECTS.HASTE.DURATION_SECONDS
+        }
+    },
     bonechill_mist = {
         id = "bonechill_mist",
         name = "Bonechill Mist",
@@ -81,6 +95,8 @@ cards.starter_deck = {
     "fire_basic",
     "crossbow_basic",
     "extended_reach",
+    "haste",
+    "haste",
     "bonechill_mist",
     "bonechill_mist",
     "energy_shield"
