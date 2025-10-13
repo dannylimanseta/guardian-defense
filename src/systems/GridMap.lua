@@ -78,7 +78,12 @@ function GridMap:init()
             return self.pathEffects[key]
         end)
     end
-    if self.onEnemyKilled then
+    -- Bridge enemy killed notifications via event bus if available (fallback to callback)
+    if self.eventBus and self.eventBus.emit then
+        self.enemySpawnManager.onEnemyKilled = function(enemyId, worldX, worldY)
+            self.eventBus:emit('enemy_killed', enemyId, worldX, worldY)
+        end
+    elseif self.onEnemyKilled then
         self.enemySpawnManager.onEnemyKilled = self.onEnemyKilled
     end
 
@@ -574,6 +579,9 @@ function GridMap:applyPathEffect(x, y, payload, cardDef, waveTag)
         sprites = sprites
     }
     self.pathEffects[key] = effect
+    if self.eventBus and self.eventBus.emit then
+        self.eventBus:emit('path_effect_applied', { x = x, y = y, effect = effect, card = cardDef })
+    end
     return true
 end
 
@@ -599,6 +607,9 @@ function GridMap:placeTowerAt(x, y, towerId, level)
     if not self:isBuildSpot(x, y) then return false end
     if self:isOccupied(x, y) then return false end
     self.towerManager:placeTower(x, y, towerId, level)
+    if self.eventBus and self.eventBus.emit then
+        self.eventBus:emit('tower_placed', { x = x, y = y, towerId = towerId, level = level or 1 })
+    end
     return true
 end
 
@@ -612,6 +623,9 @@ function GridMap:applyTowerModifiers(x, y, modifiers, cardDef)
     end
     self.rangeBounceT = 0
     self.rangeAlpha = 1
+    if self.eventBus and self.eventBus.emit then
+        self.eventBus:emit('tower_modified', { x = x, y = y, tower = tower, modifiers = modifiers, card = cardDef })
+    end
     return true
 end
 
@@ -625,6 +639,9 @@ function GridMap:applyTowerBuff(x, y, payload, cardDef)
     end
     self.rangeBounceT = 0
     self.rangeAlpha = 1
+    if self.eventBus and self.eventBus.emit then
+        self.eventBus:emit('tower_buff_applied', { x = x, y = y, tower = tower, payload = payload, card = cardDef })
+    end
     return true
 end
 
@@ -633,9 +650,13 @@ function GridMap:update(dt)
     self.enemySpawnManager:update(dt)
     if self.enemySpawnManager.consumeKilledEvents then
         local events = self.enemySpawnManager:consumeKilledEvents()
-        if events and self.onEnemyKilled then
+        if events and #events > 0 then
             for _, evt in ipairs(events) do
-                self.onEnemyKilled(evt.enemyId, evt.worldX, evt.worldY)
+                if self.eventBus and self.eventBus.emit then
+                    self.eventBus:emit('enemy_killed', evt.enemyId, evt.worldX, evt.worldY)
+                elseif self.onEnemyKilled then
+                    self.onEnemyKilled(evt.enemyId, evt.worldX, evt.worldY)
+                end
             end
         end
     end

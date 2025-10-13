@@ -9,6 +9,7 @@ local DeckManager = require 'src/systems/DeckManager'
 local HandUI = require 'src/ui/HandUI'
 -- local moonshine = require 'src/libs/moonshine'
 local WaveManager = require 'src/systems/WaveManager'
+local EventBus = require 'src/core/EventBus'
 
 local Game = {}
 
@@ -17,10 +18,14 @@ function Game:init()
     ResolutionManager:init()
     
     -- Initialize game systems
+    self.bus = EventBus:new()
     self.gridMap = GridMap:new()
     self.gridMap:init()
-    if self.gridMap and self.gridMap.setEnemyKilledCallback then
-        self.gridMap:setEnemyKilledCallback(function(enemyId, worldX, worldY)
+    -- Provide event bus to grid map and downstream systems
+    self.gridMap.eventBus = self.bus
+    -- Subscribe to enemy kill events for coin handling
+    if self.bus and self.bus.on then
+        self.unsubscribeEnemyKilled = self.bus:on('enemy_killed', function(enemyId, worldX, worldY)
             self:handleEnemyKilled(enemyId, worldX, worldY)
         end)
     end
@@ -269,6 +274,12 @@ function Game:mousereleased(x, y, button)
     else
         if self.handUI and self.handUI.onCardPlayed then
             self.handUI:onCardPlayed(info.cardIndex, def.id, startX, startY)
+        end
+        if self.bus and self.bus.emit then
+            self.bus:emit('card_played', def, {
+                x = gameX, y = gameY,
+                tile = self.gridMap and self.gridMap:getTileAtPosition(gameX, gameY) or nil
+            })
         end
     end
 end
