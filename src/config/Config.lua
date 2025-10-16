@@ -11,7 +11,7 @@ Config.LOGICAL_HEIGHT = 900  -- Design resolution height
 -- Grid Map Settings
 Config.GRID_WIDTH = 25       -- Number of tiles horizontally
 Config.GRID_HEIGHT = 12      -- Number of tiles vertically
-Config.TILE_SIZE = 70        -- Size of each tile in pixels
+Config.TILE_SIZE = 60        -- Size of each tile in pixels (reduced from 70)
 Config.TILESET_PATH = "assets/images/tiles"
 Config.ENTITIES_PATH = "assets/images/entities"
 Config.LEVELS_PATH = "assets/levels"
@@ -87,7 +87,7 @@ Config.GAME = {
     SCREEN_HIT_MOVE_AMP = 4,
     COIN_DROP = {
         enemy_1 = { chance = 0.7, coins = 1 },
-        enemy_2 = { chance = 0.7, coins = 2 },
+        enemy_2 = { chance = 0.7, coins = 1 },
         pickup = {
             travelTime = 0.9,
             travelTimeVariance = 0.25,
@@ -276,7 +276,7 @@ Config.DECK = {
         MIN_SPREAD_DEG = 18,       -- Minimum total spread when very few cards
         PER_CARD_SPREAD_DEG = 8,   -- Increment of spread per additional card - smaller increments
         ROTATION_SCALE = 0.65,     -- 1 = tangent to the arc, <1 reduces tilt
-        BASELINE_OFFSET_Y = -8,    -- Offset (pixels) to nudge baseline up/down (negative lifts cards)
+        BASELINE_OFFSET_Y = 30,    -- Offset (pixels) to nudge baseline down by ~60px from previous
         HOVER_LIFT = 22            -- How much a hovered/dragged card lifts visually
     }
 }

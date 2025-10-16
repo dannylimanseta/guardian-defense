@@ -350,10 +350,13 @@ function GridMap:draw()
 				local py = self.specialTiles.core.py or 0
 				local pcx = self.specialTiles.core.pcx or (px + self.coreSprite:getWidth() / 2)
 				local pcy = self.specialTiles.core.pcy or (py + self.coreSprite:getHeight() / 2)
-				local drawX = self.gridX + pcx - self.coreSprite:getWidth() / 2
-				local drawY = self.gridY + pcy - self.coreSprite:getHeight() / 2
+				-- Scale TMX pixel coordinates into game pixels based on tile scaling
+				local scaleX = self.tileSize / (self.sourceTileWidth or self.tileSize)
+				local scaleY = self.tileSize / (self.sourceTileHeight or self.tileSize)
+				local drawX = self.gridX + pcx * scaleX - (self.coreSprite:getWidth() * scaleX) / 2
+				local drawY = self.gridY + pcy * scaleY - (self.coreSprite:getHeight() * scaleY) / 2
 				love.graphics.setColor(1,1,1,1)
-				love.graphics.draw(self.coreSprite, drawX, drawY)
+				love.graphics.draw(self.coreSprite, drawX, drawY, 0, scaleX, scaleY)
 				local vis = self.enemySpawnManager and self.enemySpawnManager.coreShieldVisual
 				local shieldHp = (self.enemySpawnManager and self.enemySpawnManager:getCoreShield()) or 0
 				if vis and (vis.active or (vis.alpha or 0) > 0 or shieldHp > 0) and self.coreShieldSprite then
@@ -364,8 +367,8 @@ function GridMap:draw()
 						local scale = (1.08 + pulse) * 1.3
 						local img = self.coreShieldSprite
 						local iw, ih = img:getWidth(), img:getHeight()
-						local centerX = self.gridX + pcx
-						local centerY = self.gridY + pcy - 23 - (bounce - 1) * 10
+						local centerX = self.gridX + pcx * scaleX
+						local centerY = self.gridY + pcy * scaleY - (23 * scaleY) - (bounce - 1) * (10 * scaleY)
 					local prevBlend, prevAlpha = love.graphics.getBlendMode()
 					love.graphics.setBlendMode('add')
 					-- Core sprite only (no glow/aura)
@@ -568,7 +571,7 @@ function GridMap:mousepressed(x, y, button)
         if tile then
             self.selectedTile = tile
             if self.towerManager:getTowerAt(tile.x, tile.y) then
-                self:showUpgradeMenu(tile.x, tile.y)
+                self:showUpgradeMenu(tile.x, tile.y, false)
             else
                 self:hideUpgradeMenu()
             end

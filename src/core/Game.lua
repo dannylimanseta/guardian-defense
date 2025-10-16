@@ -300,7 +300,10 @@ function Game:mousemoved(x, y, dx, dy)
             self._dragSavedSelectedTile = nil
         end
         if self.gridMap and self.gridMap.hideUpgradeMenu then
-            self.gridMap:hideUpgradeMenu()
+            -- Only auto-hide the upgrade menu if it's the temporary drag-only pill
+            if self.gridMap.upgradeMenu and self.gridMap.upgradeMenu.onlyUpgradePill then
+                self.gridMap:hideUpgradeMenu()
+            end
         end
         -- Re-enable general hover computation for towers/tiles, but keep hover rect hidden
         self.gridMap:mousemoved(gameX, gameY, dx, dy)
