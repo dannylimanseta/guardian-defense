@@ -126,6 +126,8 @@ function GridMap:init()
     -- Path effects storage (per-tile) and visuals cache
     self.pathEffects = {}
     self._bonechillSprites = nil
+    -- Placement preview state (updated by Game during card drag)
+    self.placementPreview = nil
 end
 
 function GridMap:hideUpgradeMenu(force)
@@ -491,6 +493,48 @@ function GridMap:draw()
 		end
     end
     
+    -- Draw placement preview (ghost tower + range) when dragging a place_tower card
+    do
+        local pp = self.placementPreview
+        if pp and pp.tile and pp.towerId then
+            local tx, ty = pp.tile.x, pp.tile.y
+            -- draw ghost only if inside grid
+            if tx >= 1 and tx <= self.columns and ty >= 1 and ty <= self.rows then
+                -- Ghost coloring: red tint if ineligible
+                local alpha = 0.5
+                if pp.eligible == false then
+                    love.graphics.setColor(1, 0.3, 0.3, 0.6)
+                else
+                    love.graphics.setColor(1, 1, 1, 1)
+                end
+                -- Base + turret using TowerManager helper
+                if self.towerManager and self.towerManager.drawPreview then
+                    self.towerManager:drawPreview(self.gridX, self.gridY, self.tileSize, tx, ty, pp.towerId, pp.level or 1, alpha)
+                end
+                -- Draw range indicator at tile center
+                local stats = TowerDefs.getStats(pp.towerId or 'crossbow', pp.level or 1) or {}
+                local range = stats.rangePx or (Config.TOWER.RANGE_TILES * self.tileSize)
+                local cx = self.gridX + (tx - 0.5) * self.tileSize
+                local cy = self.gridY + (ty - 0.5) * self.tileSize
+                local rcfg = Config.TOWER.RANGE_INDICATOR or {}
+                -- soft fill
+                if rcfg.FILL_ENABLED then
+                    Theme.drawAdditiveCircleFill(cx, cy, range, (rcfg.FILL_ALPHA or 0.03))
+                end
+                -- dotted circle
+                Theme.drawDottedCircle(
+                    cx, cy, range,
+                    rcfg.DASH_DEG or 8,
+                    rcfg.GAP_DEG or 8,
+                    rcfg.LINE_WIDTH or 1,
+                    {(rcfg.COLOR and rcfg.COLOR[1] or 1), (rcfg.COLOR and rcfg.COLOR[2] or 1), (rcfg.COLOR and rcfg.COLOR[3] or 1), 0.7},
+                    rcfg.ROTATE_ENABLED and (self.rangeRotateDeg or 0) or 0
+                )
+                love.graphics.setColor(1,1,1,1)
+            end
+        end
+    end
+
     -- Reset color
     love.graphics.setColor(1, 1, 1, 1)
     love.graphics.pop()

@@ -6,8 +6,8 @@ local Enemies = {
 	enemy_1 = {
 		id = 'enemy_1',
 		name = 'Goblin',
-		speedTilesPerSecond = 0.9,
-		hp = 48,
+		speedTilesPerSecond = 1.05,
+		hp = 60,
 		reward = 1,
 		-- fraction of tile size to draw sprite at (defaults to 0.6 if absent)
 		tileScale = 0.6
@@ -17,8 +17,8 @@ local Enemies = {
 		id = 'enemy_2',
 		name = 'Brute',
 		-- moves slower than enemy_1
-		speedTilesPerSecond = 0.6,
-		hp = 72,
+		speedTilesPerSecond = 0.75,
+		hp = 96,
 		-- slightly higher reward
 		reward = 2,
 		-- larger visual size

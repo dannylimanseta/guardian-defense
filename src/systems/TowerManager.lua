@@ -505,6 +505,81 @@ function TowerManager:draw(gridX, gridY, tileSize)
     love.graphics.setColor(1,1,1,1)
 end
 
+-- Draw a non-interactive preview of a tower (base + turret) at a grid tile
+-- Intended for placement previews while dragging a card
+function TowerManager:drawPreview(gridX, gridY, tileSize, tileXIdx, tileYIdx, towerId, level, alpha)
+    -- lazy-load sprites (same assets as normal draw)
+    if not self.towerBaseSprite then
+        local path = string.format('%s/%s', Config.ENTITIES_PATH, 'tower_base_1.png')
+        if love.filesystem.getInfo(path) then
+            self.towerBaseSprite = love.graphics.newImage(path)
+        end
+    end
+    if not self.towerCrossbowSprite1 then
+        local path = string.format('%s/%s', Config.ENTITIES_PATH, 'tower_crossbow_1.png')
+        if love.filesystem.getInfo(path) then
+            self.towerCrossbowSprite1 = love.graphics.newImage(path)
+        end
+    end
+    if not self.towerCrossbowSprite2 then
+        local path = string.format('%s/%s', Config.ENTITIES_PATH, 'tower_crossbow_2.png')
+        if love.filesystem.getInfo(path) then
+            self.towerCrossbowSprite2 = love.graphics.newImage(path)
+        end
+    end
+    if not self.towerFireSprite then
+        local path = string.format('%s/%s', Config.ENTITIES_PATH, 'tower_fire_1.png')
+        if love.filesystem.getInfo(path) then
+            self.towerFireSprite = love.graphics.newImage(path)
+        end
+    end
+    if not self.towerFireSprite2 then
+        local path = string.format('%s/%s', Config.ENTITIES_PATH, 'tower_fire_2.png')
+        if love.filesystem.getInfo(path) then
+            self.towerFireSprite2 = love.graphics.newImage(path)
+        end
+    end
+
+    local ax = gridX + (tileXIdx - 1) * tileSize
+    local ay = gridY + (tileYIdx - 1) * tileSize
+    local a = alpha or 0.5
+    -- base
+    if self.towerBaseSprite then
+        local scaleX = tileSize / self.towerBaseSprite:getWidth()
+        local scaleY = tileSize / self.towerBaseSprite:getHeight()
+        local drawX = ax + (tileSize - self.towerBaseSprite:getWidth() * scaleX) / 2
+        local drawY = ay + (tileSize - self.towerBaseSprite:getHeight() * scaleY) / 2
+        love.graphics.setColor(1,1,1,a)
+        love.graphics.draw(self.towerBaseSprite, drawX, drawY, 0, scaleX, scaleY)
+    end
+    -- turret (choose by id + level)
+    local turretSprite = nil
+    local lvl = level or 1
+    if (towerId or 'crossbow') == 'fire' then
+        turretSprite = (lvl >= 2) and (self.towerFireSprite2 or self.towerFireSprite) or self.towerFireSprite
+    else
+        turretSprite = (lvl >= 2) and (self.towerCrossbowSprite2 or self.towerCrossbowSprite1) or self.towerCrossbowSprite1
+    end
+    if turretSprite then
+        local scaleX = tileSize / turretSprite:getWidth()
+        local scaleY = tileSize / turretSprite:getHeight()
+        local cx = ax + tileSize / 2
+        local cy = ay + tileSize / 2
+        love.graphics.setColor(1,1,1,a)
+        love.graphics.draw(
+            turretSprite,
+            cx,
+            cy,
+            0,
+            scaleX,
+            scaleY,
+            turretSprite:getWidth() / 2,
+            turretSprite:getHeight() / 2
+        )
+    end
+    love.graphics.setColor(1,1,1,1)
+end
+
 return TowerManager
 
 

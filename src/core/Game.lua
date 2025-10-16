@@ -216,6 +216,23 @@ function Game:mousemoved(x, y, dx, dy)
         if self.handUI.drag.cardId then
             cardDef = self.deck:getCardDef(self.handUI.drag.cardId)
         end
+        -- Update placement preview state for place_tower
+        if self.gridMap then
+            if cardDef and cardDef.type == 'place_tower' and tile then
+                local towerId = (cardDef.payload and cardDef.payload.tower) or 'crossbow'
+                local level = (cardDef.payload and cardDef.payload.level) or 1
+                self.gridMap.placementPreview = {
+                    tile = tile,
+                    eligible = true,
+                    towerId = towerId,
+                    level = level
+                }
+                -- compute eligibility for placement
+                self.gridMap.placementPreview.eligible = self.gridMap:isBuildSpot(tile.x, tile.y) and (not self.gridMap:isOccupied(tile.x, tile.y))
+            else
+                self.gridMap.placementPreview = nil
+            end
+        end
         if tile then
             if cardDef and cardDef.type == 'modify_tower' then
                 eligible = self.gridMap:isOccupied(tile.x, tile.y)
@@ -230,6 +247,7 @@ function Game:mousemoved(x, y, dx, dy)
         end
         self.gridMap:setHoverFromPlacement(tile, eligible)
     else
+        if self.gridMap then self.gridMap.placementPreview = nil end
         -- Re-enable general hover computation for towers/tiles, but keep hover rect hidden
         self.gridMap:mousemoved(gameX, gameY, dx, dy)
         self.gridMap.showHoverRect = false
@@ -254,6 +272,8 @@ function Game:mousereleased(x, y, button)
         deck = self.deck,
         bus = self.bus
     }, def, { x = gameX, y = gameY })
+    -- Clear placement preview regardless of result
+    if self.gridMap then self.gridMap.placementPreview = nil end
     if not placed then
         -- refund energy and card if placement invalid
         self.deck:refundLastPlayed(def.id)
