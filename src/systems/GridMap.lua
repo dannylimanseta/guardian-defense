@@ -294,12 +294,23 @@ function GridMap:draw()
                             tileY = tileY + offsetY
                         end
                         
-                        -- Support flipped tiles from TMX
-                        local sx = scaleX * ((tile.flipX and -1) or 1)
-                        local sy = scaleY * ((tile.flipY and -1) or 1)
-                        local ox = (tile.flipX and sprite:getWidth()) or 0
-                        local oy = (tile.flipY and sprite:getHeight()) or 0
-                        love.graphics.draw(sprite, tileX + (tile.flipX and sprite:getWidth() * scaleX or 0), tileY + (tile.flipY and sprite:getHeight() * scaleY or 0), 0, sx, sy)
+                        -- Support flipped tiles from TMX, including diagonal (rotated) flag
+                        if tile.flipD then
+                            -- Draw centered with 90° rotation; in Tiled, when diagonal is set the H/V meanings swap
+                            local cx = tileX + (self.tileSize) * 0.5
+                            local cy = tileY + (self.tileSize) * 0.5
+                            local h = tile.flipX and true or false
+                            local v = tile.flipY and true or false
+                            -- Swap H/V under diagonal to better match Tiled's transform composition
+                            local sx = scaleX * ((v and -1) or 1)
+                            local sy = scaleY * ((h and -1) or 1)
+                            love.graphics.draw(sprite, cx, cy, math.pi * 0.5, sx, sy, sprite:getWidth() * 0.5, sprite:getHeight() * 0.5)
+                        else
+                            -- Horizontal/vertical flips without rotation
+                            local sx = scaleX * ((tile.flipX and -1) or 1)
+                            local sy = scaleY * ((tile.flipY and -1) or 1)
+                            love.graphics.draw(sprite, tileX + (tile.flipX and sprite:getWidth() * scaleX or 0), tileY + (tile.flipY and sprite:getHeight() * scaleY or 0), 0, sx, sy)
+                        end
                         -- During entrance fade, draw a closed-door overlay inversely to tile opacity
                         if tile.type == 'entrance' then
                             self._entranceClosedImg = self._entranceClosedImg or (function()

@@ -85,6 +85,12 @@ end
 function DeckManager:onIntermissionStart(nextWaveIndex)
     -- bump serial so UI can trigger transitional animation
     self.intermissionSerial = (self.intermissionSerial or 0) + 1
+    -- Reset energy per turn and grant ENERGY_PER_TURN if enabled
+    if Config.DECK.RESET_ENERGY_PER_TURN then
+        self.energy = 0
+        local perTurn = (nextWaveIndex == 1) and (Config.DECK.FIRST_TURN_ENERGY or Config.DECK.ENERGY_PER_TURN or 0) or (Config.DECK.ENERGY_PER_TURN or 0)
+        self.energy = self.energy + perTurn
+    end
     if Config.DECK.DISCARD_ON_INTERMISSION_START and #self.hand > 0 then
         for i = 1, #self.hand do
             table.insert(self.discardPile, self.hand[i])

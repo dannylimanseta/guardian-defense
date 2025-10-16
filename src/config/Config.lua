@@ -200,9 +200,13 @@ Config.DECK = {
     -- For the very first intermission (before wave 1), deal this many instead of the default
     INITIAL_INTERMISSION_DEAL = 5,
     -- Starting energy when a new run begins
-    STARTING_ENERGY = 5,
-    -- Energy change per wave completion (added at intermission start)
-    ENERGY_GAIN_PER_WAVE = 1,
+    STARTING_ENERGY = 0,
+    -- New: per-turn energy model
+    RESET_ENERGY_PER_TURN = true,
+    ENERGY_PER_TURN = 3,
+    FIRST_TURN_ENERGY = 5,
+    -- Legacy: additive per-wave model (ignored when RESET_ENERGY_PER_TURN=true)
+    ENERGY_GAIN_PER_WAVE = 0,
     -- Legacy hand size used by some UI layout math; does not cap the hand
     HAND_SIZE = 6,
     -- Discard previous hand at intermission start before dealing a fresh hand
