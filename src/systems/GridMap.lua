@@ -24,6 +24,7 @@ end
 
 function GridMap:triggerEntranceFade()
 	-- Collect entrance tiles and reset fade timers
+	if self._entranceFadedOnce then return end
 	self._entranceTiles = {}
 	for _, layer in ipairs(self.layers or {}) do
 		for _, tile in ipairs(layer.tiles or {}) do
@@ -38,9 +39,9 @@ end
 
 function GridMap:init()
     -- Load map from TMX
-    self.mapData = MapLoader:load("level_1")
+    self.mapData = MapLoader:load("level_2")
     if not self.mapData or not self.mapData.tiles then
-        error("Failed to load map data for level_1")
+        error("Failed to load map data for level_2")
     end
 
     -- Map dimensions and tile sizing
@@ -65,6 +66,7 @@ function GridMap:init()
 	self._entranceFadeT = 0
 	self._entranceFadeDur = 0.2 -- quick fade-in
 	self._entranceFadeDelay = 0 -- no delay before fade starts
+	self._entranceFadedOnce = false
     self.towerManager = TowerManager:new()
     self.projectileManager = ProjectileManager:new()
     self.upgradeMenu = {
@@ -279,6 +281,27 @@ function GridMap:draw()
                         local ox = (tile.flipX and sprite:getWidth()) or 0
                         local oy = (tile.flipY and sprite:getHeight()) or 0
                         love.graphics.draw(sprite, tileX + (tile.flipX and sprite:getWidth() * scaleX or 0), tileY + (tile.flipY and sprite:getHeight() * scaleY or 0), 0, sx, sy)
+                        -- During entrance fade, draw a closed-door overlay inversely to tile opacity
+                        if tile.type == 'entrance' then
+                            self._entranceClosedImg = self._entranceClosedImg or (function()
+                                local p = string.format('%s/%s', Config.TILESET_PATH, 'entrance_1_closed.png')
+                                if love.filesystem.getInfo(p) then
+                                    local img = love.graphics.newImage(p)
+                                    return img
+                                end
+                                return nil
+                            end)()
+                            if self._entranceClosedImg then
+                                local alpha = 1 - (tile.opacity or 0)
+                                if alpha > 0 then
+                                    love.graphics.setColor(1, 1, 1, alpha)
+                                    local csx = scaleX * ((tile.flipX and -1) or 1)
+                                    local csy = scaleY * ((tile.flipY and -1) or 1)
+                                    love.graphics.draw(self._entranceClosedImg, tileX + (tile.flipX and self._entranceClosedImg:getWidth() * scaleX or 0), tileY + (tile.flipY and self._entranceClosedImg:getHeight() * scaleY or 0), 0, csx, csy)
+                                    love.graphics.setColor(1, 1, 1, 1)
+                                end
+                            end
+                        end
                         ::skip_tile_draw::
                     end
                 end
@@ -718,7 +741,10 @@ function GridMap:update(dt)
 			if t then t.opacity = a end
 			if a >= 1 then table.remove(self._entranceTiles, i) end
 		end
-		if a >= 1 then self._entranceTiles = nil end
+		if a >= 1 then
+			self._entranceTiles = nil
+			self._entranceFadedOnce = true
+		end
 	end
 
     -- Animate path effects (e.g., Bonechill crossfade)

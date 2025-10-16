@@ -59,6 +59,11 @@ Config.UI = {
         SHADOW_COLOR = {0, 0, 0, 0.6},
         GAP_FROM_COIN = 58
     },
+    CORE_HEALTH_TRACKER = {
+        ICON = 'sanctum_core_hp.png',
+        ICON_SCALE = 0.6,
+        ICON_TEXT_SPACING = 10
+    },
     TOWER_MENU = {
         WIDTH = 220,
         ROW_HEIGHT = 44,
@@ -91,7 +96,8 @@ Config.GAME = {
             delayBetweenCoins = 0.08,
             startLift = -10
         }
-    }
+    },
+    WAVE_START_DELAY = 1.5
 }
 
 -- UI: Enemy Health Bars
@@ -119,6 +125,7 @@ Config.ENEMY = {
     SPEED_TILES_PER_SECOND = 0.9,  -- 70% slower (30% of original speed)
     SPAWN_INTERVAL = 2,          -- Seconds between spawns
     SPAWN_INTERVAL_MULTIPLIER = 1.8, -- Multiplies wave spawn spacing for more breathing room
+    MIN_SPAWN_SPACING_SECONDS = 0.3, -- Global minimum seconds between spawns per spawn point
     MAX_ACTIVE = 20,             -- Max enemies active at once
     DAMAGE_ON_HIT = 1,           -- Damage to core on hit
     DEFAULT_HP = 48,              -- Enemy starting HP (reduced 20%)

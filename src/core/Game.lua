@@ -294,8 +294,9 @@ function Game:drawHUD()
     local fontKey = energyCfg.FONT or 'BOLD_MEDIUM'
     local font = Theme.FONTS[fontKey] or Theme.FONTS.BOLD_MEDIUM
     local icon = self:loadCoreHpIcon()
-    local iconScale = 0.6
-    local iconTextSpacing = 10
+    local coreTracker = Config.UI.CORE_HEALTH_TRACKER or {}
+    local iconScale = coreTracker.ICON_SCALE or 0.6
+    local iconTextSpacing = coreTracker.ICON_TEXT_SPACING or 10
 
 	local baseStr = string.format("%d/%d", coreHealth, maxHealth)
 	local shieldStr = ((shield or 0) > 0) and string.format("  +%d", shield) or ''
@@ -351,7 +352,8 @@ end
 
 function Game:loadCoreHpIcon()
     if self.coreHpIcon ~= nil then return self.coreHpIcon end
-    local filename = 'vigil_core_hp.png'
+    local tracker = Config.UI.CORE_HEALTH_TRACKER or {}
+    local filename = tracker.ICON or 'sanctum_core_hp.png'
     local path = string.format('%s/%s', Config.ENTITIES_PATH, filename)
     if love.filesystem.getInfo(path) then
         local ok, img = pcall(love.graphics.newImage, path)

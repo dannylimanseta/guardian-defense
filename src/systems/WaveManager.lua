@@ -45,6 +45,9 @@ function WaveManager:new(stageId, enemySpawnManager, deckManager)
     self._deferredWaveEndedIndex = nil
     self._deferredNextWaveIndex = nil
 
+    -- Track last spawn times per spawn index to enforce global min spacing
+    self._lastSpawnAtByIndex = {}
+
     return self
 end
 
@@ -123,6 +126,13 @@ function WaveManager:startNextWave()
         spawners = spawners,
         done = false
     }
+    -- Apply global wave start delay to each spawner's first fire time
+    local delay = (Config.GAME and Config.GAME.WAVE_START_DELAY) or 0
+    if delay and delay > 0 then
+        for _, s in ipairs(wave.spawners) do
+            s.nextFireAt = (s.nextFireAt or 0) + delay
+        end
+    end
     table.insert(self.activeWaves, wave)
 
     self.nextWaveIndex = idx + 1
@@ -140,9 +150,20 @@ function WaveManager:update(dt)
             if s.remaining > 0 then
                 allDone = false
                 while s.remaining > 0 and wave.elapsed >= s.nextFireAt do
+                    -- Enforce global minimal spacing per spawn point to avoid clumping
+                    local minSpacing = (Config.ENEMY and Config.ENEMY.MIN_SPAWN_SPACING_SECONDS) or 0
+                    local lastAt = self._lastSpawnAtByIndex[s.spawnIndex] or -math.huge
+                    if minSpacing > 0 and (wave.elapsed - lastAt) < minSpacing then
+                        -- Delay this spawner's next fire just enough to satisfy min spacing
+                        local delay = minSpacing - (wave.elapsed - lastAt)
+                        s.nextFireAt = wave.elapsed + delay
+                        break
+                    end
+
                     if self.enemySpawnManager and self.enemySpawnManager.requestSpawn then
                         self.enemySpawnManager:requestSpawn(s.enemyId, s.spawnIndex, s.modifiers)
                     end
+                    self._lastSpawnAtByIndex[s.spawnIndex] = wave.elapsed
                     s.remaining = s.remaining - 1
                     local jitterTerm = (s.jitter or 0) * (math.random() - 0.5)
                     s.nextFireAt = s.nextFireAt + s.interval + jitterTerm

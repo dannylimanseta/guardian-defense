@@ -1,6 +1,6 @@
 ### Guardian Defense
 
-Arcade tower-defense prototype with light deckbuilding, built on LÖVE 11.4. Place towers on designated build spots, defend the Vigil Core against waves of enemies, and play cards to place towers, buff them, or alter the path.
+Arcade tower-defense prototype with light deckbuilding, built on LÖVE 11.4. Place towers on designated build spots, defend the Sanctum Core against waves of enemies, and play cards to place towers, buff them, or alter the path.
 
 ### Requirements
 
@@ -32,7 +32,7 @@ Tip: If multiple LÖVE versions are installed, ensure 11.4 is used.
 ### Gameplay Loop
 
 - **Waves & Intermissions**
-  - Waves spawn enemies along the TMX-defined path toward the Vigil Core.
+  - Waves spawn enemies along the TMX-defined path toward the Sanctum Core.
   - Between waves, new cards are dealt to your hand and energy is replenished per `Config.DECK`.
 - **Cards** (from `src/data/cards.lua`)
   - place_tower: e.g., Crossbow, Fire
@@ -43,7 +43,7 @@ Tip: If multiple LÖVE versions are installed, ensure 11.4 is used.
 - **Economy**
   - Enemies have a chance to drop coins which fly to the HUD counter.
   - Use coins to upgrade or destroy towers via the on-tile menu.
-- **Core Health**
+- **Sanctum Core Health**
   - Shown as a compact HUD panel; shields absorb damage before health.
 
 All tunables (resolution, colors, speeds, damage, UI, deck settings) live in `src/config/Config.lua` as the single source of truth.

@@ -142,7 +142,7 @@ function EnemySpawnManager:spawnDeathBurst(x, y)
     end
     self.deathBursts[#self.deathBursts + 1] = burst
 end
--- Add temporary shield to Vigil Core (stacks)
+-- Add temporary shield to Sanctum Core (stacks)
 function EnemySpawnManager:addCoreShield(amount, waveTag)
     local add = math.max(0, tonumber(amount) or 0)
     if add <= 0 then return end
@@ -543,7 +543,7 @@ function EnemySpawnManager:update(dt)
         end
         local path = e.path
         if not path or e.pathIndex >= #path then
-            -- Reached last node (assume Vigil Core); apply shield absorption first
+            -- Reached last node (assume Sanctum Core); apply shield absorption first
             applyCoreHit(self, Config.ENEMY.DAMAGE_ON_HIT)
             table.remove(self.enemies, i)
         else

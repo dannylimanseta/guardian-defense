@@ -94,11 +94,16 @@ function DeckManager:onIntermissionStart(nextWaveIndex)
     local toDeal
     if (nextWaveIndex == 1) and (Config.DECK.INITIAL_INTERMISSION_DEAL ~= nil) then
         toDeal = Config.DECK.INITIAL_INTERMISSION_DEAL or 0
+        if toDeal > 0 then
+            -- Initial draw: ensure at least 3 tower cards if available
+            self:drawCardsEnsureMinTowers(toDeal, 3)
+        end
     else
         toDeal = Config.DECK.INTERMISSION_DEAL or 0
-    end
-    if toDeal > 0 then
-        self:drawCardsEnsureTower(toDeal)
+        if toDeal > 0 then
+            -- Subsequent draws: ensure at least 1 tower if available
+            self:drawCardsEnsureTower(toDeal)
+        end
     end
 end
 
@@ -122,13 +127,24 @@ function DeckManager:drawCards(n)
     end
 end
 
--- Draw n cards, guaranteeing at least one tower (type == 'place_tower')
--- if any tower cards remain in draw/discard piles. If none remain, falls back to normal draw.
-function DeckManager:drawCardsEnsureTower(n)
-    if n <= 0 then return end
-    -- Helper to try popping a tower card from draw pile; if none, reshuffle discard then retry
-    local function popTower()
-        -- search draw pile from top (end) to bottom
+-- Internal helper to take one tower from piles (reshuffles discard if needed)
+function DeckManager:popTowerFromPiles()
+    -- search draw pile from top (end) to bottom
+    for i = #self.drawPile, 1, -1 do
+        local id = self.drawPile[i]
+        local def = self:getCardDef(id)
+        if def and def.type == 'place_tower' then
+            table.remove(self.drawPile, i)
+            return id
+        end
+    end
+    if #self.discardPile > 0 then
+        -- move discard to draw and shuffle, then search again
+        for j = 1, #self.discardPile do
+            table.insert(self.drawPile, self.discardPile[j])
+        end
+        self.discardPile = {}
+        shuffleInPlace(self.drawPile)
         for i = #self.drawPile, 1, -1 do
             local id = self.drawPile[i]
             local def = self:getCardDef(id)
@@ -137,27 +153,16 @@ function DeckManager:drawCardsEnsureTower(n)
                 return id
             end
         end
-        if #self.discardPile > 0 then
-            -- move discard to draw and shuffle, then search again
-            for j = 1, #self.discardPile do
-                table.insert(self.drawPile, self.discardPile[j])
-            end
-            self.discardPile = {}
-            shuffleInPlace(self.drawPile)
-            for i = #self.drawPile, 1, -1 do
-                local id = self.drawPile[i]
-                local def = self:getCardDef(id)
-                if def and def.type == 'place_tower' then
-                    table.remove(self.drawPile, i)
-                    return id
-                end
-            end
-        end
-        return nil
     end
+    return nil
+end
 
+-- Draw n cards, guaranteeing at least one tower (type == 'place_tower')
+-- if any tower cards remain in draw/discard piles. If none remain, falls back to normal draw.
+function DeckManager:drawCardsEnsureTower(n)
+    if n <= 0 then return end
     -- Try to reserve a tower card if available
-    local reservedTower = popTower()
+    local reservedTower = self:popTowerFromPiles()
     if reservedTower then
         -- Draw remaining n-1 normally, then add the reserved tower
         self:drawCards(math.max(0, n - 1))
@@ -165,6 +170,26 @@ function DeckManager:drawCardsEnsureTower(n)
     else
         -- No towers remain; draw normally
         self:drawCards(n)
+    end
+end
+
+-- Draw n cards, ensuring at least `minTowers` tower cards if available across draw/discard
+function DeckManager:drawCardsEnsureMinTowers(n, minTowers)
+    minTowers = math.max(0, minTowers or 0)
+    if n <= 0 then return end
+    local reserved = {}
+    for i = 1, minTowers do
+        local id = self:popTowerFromPiles()
+        if not id then break end
+        reserved[#reserved + 1] = id
+    end
+    local remaining = math.max(0, n - #reserved)
+    if remaining > 0 then
+        self:drawCards(remaining)
+    end
+    -- Append reserved towers to hand
+    for i = 1, #reserved do
+        table.insert(self.hand, reserved[i])
     end
 end
 

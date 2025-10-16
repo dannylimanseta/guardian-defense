@@ -21,7 +21,7 @@ cards.catalog = {
         id = "fire_basic",
         name = "Fire Tower",
         type = "place_tower",
-        cost = 2,
+        cost = 1,
         requiresTarget = true,
         description = "Applies burn. First tick hits instantly.",
         level = 1,
@@ -35,7 +35,7 @@ cards.catalog = {
         type = "apply_core_shield",
         cost = 1,
         requiresTarget = false,
-        description = "For this wave only, conjure a temporary 3 HP energy shield for your Vigil Core.",
+        description = "For this wave only, conjure a temporary 3 HP energy shield for your Sanctum Core.",
         level = 1,
         payload = {
             shieldHp = 3
@@ -75,7 +75,7 @@ cards.catalog = {
         type = "apply_path_effect",
         cost = 0,
         requiresTarget = true,
-        description = "For this wave only, Slows enemies walking through the mist. Deals damage at higher levels.",
+        description = "For this wave only, slows enemies walking through the mist. Deals damage at higher levels.",
         level = 1,
         payload = {
             effect = "bonechill_mist",
@@ -94,7 +94,6 @@ cards.starter_deck = {
     "fire_basic",
     "fire_basic",
     "crossbow_basic",
-    "extended_reach",
     "haste",
     "haste",
     "bonechill_mist",
