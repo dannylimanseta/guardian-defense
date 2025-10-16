@@ -119,6 +119,10 @@ function WaveManager:startNextWave()
     local absSchedule = computeAbsoluteSchedule(waveDef.schedule or {})
     local spawners = buildSpawnersFromSchedule(absSchedule, self.baseMultipliers)
 
+    -- Reset per-spawn last-fire timestamps for min-spacing enforcement.
+    -- These are measured against wave.elapsed, so they must not carry over between waves.
+    self._lastSpawnAtByIndex = {}
+
     local wave = {
         index = idx,
         name = waveDef.name or ('Wave ' .. tostring(idx)),

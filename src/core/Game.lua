@@ -81,7 +81,7 @@ function Game:init()
     self.handUI = HandUI:new(self.deck)
 
     -- Initialize wave manager with current stage, spawn system, and deck manager (for intermission hooks)
-    self.waveManager = WaveManager:new('level_1', self.gridMap.enemySpawnManager, self.deck)
+    self.waveManager = WaveManager:new('level_2', self.gridMap.enemySpawnManager, self.deck)
     -- Provide GridMap to WaveManager for path-effect clearing hooks
     if self.waveManager then
         self.waveManager.gridMap = self.gridMap

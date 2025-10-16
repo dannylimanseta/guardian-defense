@@ -295,8 +295,8 @@ Config.CARD_EFFECTS = {
 -- Difficulty presets for waves/enemies
 Config.DIFFICULTY_PRESETS = {
     easy = { count = 0.9, spawnSpeed = 0.95, hp = 0.9, speed = 0.95, reward = 1.0 },
-    normal = { count = 1.0, spawnSpeed = 1.0, hp = 1.0, speed = 1.0, reward = 1.0 },
-    hard = { count = 1.2, spawnSpeed = 1.1, hp = 1.15, speed = 1.05, reward = 1.1 }
+    normal = { count = 1.0, spawnSpeed = 1.0, hp = 1.25, speed = 1.10, reward = 1.0 },
+    hard = { count = 1.2, spawnSpeed = 1.1, hp = 1.35, speed = 1.15, reward = 1.1 }
 }
 
 -- Current difficulty selection
