@@ -148,7 +148,11 @@ function Game:draw()
         local costCheck = function(cost)
             return (self.coinCount or 0) >= (cost or 0)
         end
-        self.gridMap:drawUpgradeMenu(costCheck)
+        local hasMatchingCardCheck = function(towerId)
+            if not self.deck or not self.deck.hasTowerCardInHand then return true end
+            return self.deck:hasTowerCardInHand(towerId)
+        end
+        self.gridMap:drawUpgradeMenu(costCheck, hasMatchingCardCheck)
     end
     if self.gridMap and self.gridMap.drawInfoPanel then
         self.gridMap:drawInfoPanel()
@@ -221,16 +225,58 @@ function Game:mousemoved(x, y, dx, dy)
             if cardDef and cardDef.type == 'place_tower' and tile then
                 local towerId = (cardDef.payload and cardDef.payload.tower) or 'crossbow'
                 local level = (cardDef.payload and cardDef.payload.level) or 1
-                self.gridMap.placementPreview = {
-                    tile = tile,
-                    eligible = true,
-                    towerId = towerId,
-                    level = level
-                }
-                -- compute eligibility for placement
-                self.gridMap.placementPreview.eligible = self.gridMap:isBuildSpot(tile.x, tile.y) and (not self.gridMap:isOccupied(tile.x, tile.y))
+                local isOccupied = self.gridMap:isOccupied(tile.x, tile.y)
+                -- If hovering a matching tower, suppress ghost/radius and show upgrade pill
+                if isOccupied then
+                    local tower = self.gridMap.towerManager and self.gridMap.towerManager:getTowerAt(tile.x, tile.y)
+                    if tower and (tower.towerId == towerId) then
+                        -- Hide placement ghost and range/selection while dragging over upgrade target
+                        self.gridMap.placementPreview = nil
+                        if not self._dragSavedSelectedTile then
+                            self._dragSavedSelectedTile = self.gridMap.selectedTile
+                        end
+                        self.gridMap.selectedTile = nil
+                        -- Show upgrade menu pill at hovered tower
+                        self.gridMap:showUpgradeMenu(tile.x, tile.y, true)
+                    else
+                        -- Not a matching tower: restore state and hide upgrade menu
+                        if self._dragSavedSelectedTile ~= nil then
+                            self.gridMap.selectedTile = self._dragSavedSelectedTile
+                            self._dragSavedSelectedTile = nil
+                        end
+                        self.gridMap:hideUpgradeMenu()
+                        -- Show normal placement ghost for empty-spot eligibility calc below
+                        self.gridMap.placementPreview = {
+                            tile = tile,
+                            eligible = true,
+                            towerId = towerId,
+                            level = level
+                        }
+                        self.gridMap.placementPreview.eligible = self.gridMap:isBuildSpot(tile.x, tile.y) and (not isOccupied)
+                    end
+                else
+                    -- Empty tile: ensure upgrade pill hidden and show placement preview
+                    if self._dragSavedSelectedTile ~= nil then
+                        self.gridMap.selectedTile = self._dragSavedSelectedTile
+                        self._dragSavedSelectedTile = nil
+                    end
+                    self.gridMap:hideUpgradeMenu()
+                    self.gridMap.placementPreview = {
+                        tile = tile,
+                        eligible = true,
+                        towerId = towerId,
+                        level = level
+                    }
+                    self.gridMap.placementPreview.eligible = self.gridMap:isBuildSpot(tile.x, tile.y) and true
+                end
             else
                 self.gridMap.placementPreview = nil
+                -- Leaving tower-card drag or outside grid: restore selection and hide upgrade pill
+                if self._dragSavedSelectedTile ~= nil then
+                    self.gridMap.selectedTile = self._dragSavedSelectedTile
+                    self._dragSavedSelectedTile = nil
+                end
+                self.gridMap:hideUpgradeMenu()
             end
         end
         if tile then
@@ -248,6 +294,14 @@ function Game:mousemoved(x, y, dx, dy)
         self.gridMap:setHoverFromPlacement(tile, eligible)
     else
         if self.gridMap then self.gridMap.placementPreview = nil end
+        -- Restore selection and hide transient upgrade menu when drag ends
+        if self._dragSavedSelectedTile ~= nil then
+            self.gridMap.selectedTile = self._dragSavedSelectedTile
+            self._dragSavedSelectedTile = nil
+        end
+        if self.gridMap and self.gridMap.hideUpgradeMenu then
+            self.gridMap:hideUpgradeMenu()
+        end
         -- Re-enable general hover computation for towers/tiles, but keep hover rect hidden
         self.gridMap:mousemoved(gameX, gameY, dx, dy)
         self.gridMap.showHoverRect = false
@@ -270,7 +324,8 @@ function Game:mousereleased(x, y, button)
         gridMap = self.gridMap,
         waveManager = self.waveManager,
         deck = self.deck,
-        bus = self.bus
+        bus = self.bus,
+        game = self
     }, def, { x = gameX, y = gameY })
     -- Clear placement preview regardless of result
     if self.gridMap then self.gridMap.placementPreview = nil end
@@ -787,11 +842,41 @@ function Game:isStartWaveEligible()
     return noActive and noEnemies and hasNext
 end
 
-function Game:attemptTowerUpgrade(tower, targetLevel, cost)
+function Game:attemptTowerUpgrade(tower, targetLevel, cost, opts)
     if not tower or not targetLevel then return false end
     cost = cost or 0
+    opts = opts or {}
+    -- Require matching tower card unless explicitly bypassed
+    local requireCard = (opts.requireCard ~= false)
+    local consumedIndex, consumedId
+    if requireCard then
+        if not self.deck or not self.deck.findTowerCardIndexInHand then return false end
+        local idx, id = self.deck:findTowerCardIndexInHand(tower.towerId or 'crossbow')
+        if not idx then
+            return false
+        end
+        -- Consume the matching tower card (slide up animation will be triggered by HandUI:onCardPlayed)
+        consumedIndex, consumedId = idx, id
+        self.deck:consumeTowerCardByIndex(idx)
+        if self.handUI and self.handUI.onCardPlayed then
+            -- Use start positions from current card state for a slide-up effect
+            self.handUI:onCardPlayed(idx, id)
+        end
+    end
     if cost > 0 then
         if not self:spendCoins(cost) then
+            -- If spending fails and we consumed a card, refund it back to hand front
+            if consumedId then
+                -- Put back to hand front without energy changes
+                table.insert(self.deck.hand, 1, consumedId)
+                -- Remove the one we just pushed to discard
+                for i = #self.deck.discardPile, 1, -1 do
+                    if self.deck.discardPile[i] == consumedId then
+                        table.remove(self.deck.discardPile, i)
+                        break
+                    end
+                end
+            end
             return false
         end
     end
@@ -805,6 +890,16 @@ function Game:attemptTowerUpgrade(tower, targetLevel, cost)
         else
             if cost > 0 then
                 self:addCoins(cost)
+            end
+            -- If upgrade fails after consuming, refund the card
+            if consumedId then
+                table.insert(self.deck.hand, 1, consumedId)
+                for i = #self.deck.discardPile, 1, -1 do
+                    if self.deck.discardPile[i] == consumedId then
+                        table.remove(self.deck.discardPile, i)
+                        break
+                    end
+                end
             end
         end
     end

@@ -253,6 +253,48 @@ function DeckManager:refundLastPlayed(cardId)
     end
 end
 
+-- Find the first index in hand of a card that places the given towerId
+function DeckManager:findTowerCardIndexInHand(towerId)
+    if not towerId then return nil end
+    for i = 1, #self.hand do
+        local id = self.hand[i]
+        local def = self:getCardDef(id)
+        if def and def.type == 'place_tower' and def.payload and def.payload.tower == towerId then
+            return i, id
+        end
+    end
+    return nil
+end
+
+function DeckManager:hasTowerCardInHand(towerId)
+    local idx = self:findTowerCardIndexInHand(towerId)
+    return idx ~= nil
+end
+
+-- Remove a card from hand by index without affecting energy; optionally move to discard (default true)
+function DeckManager:removeCardFromHandByIndex(index, moveToDiscard)
+    local id = self.hand[index]
+    if not id then return nil end
+    table.remove(self.hand, index)
+    if moveToDiscard ~= false then
+        table.insert(self.discardPile, id)
+    end
+    return id
+end
+
+-- Consume (discard) a tower card at hand index (no energy changes)
+function DeckManager:consumeTowerCardByIndex(index)
+    return self:removeCardFromHandByIndex(index, true)
+end
+
+-- Find and consume a matching tower card in hand; returns index and id if consumed
+function DeckManager:consumeTowerCardByTowerId(towerId)
+    local idx, id = self:findTowerCardIndexInHand(towerId)
+    if not idx then return nil end
+    self:consumeTowerCardByIndex(idx)
+    return idx, id
+end
+
 return DeckManager
 
 

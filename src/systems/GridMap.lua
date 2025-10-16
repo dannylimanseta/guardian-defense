@@ -147,17 +147,32 @@ function GridMap:hideUpgradeMenu(force)
     self.upgradeMenu.closeT = 0
 end
 
-function GridMap:showUpgradeMenu(tileX, tileY)
+function GridMap:showUpgradeMenu(tileX, tileY, onlyUpgradePill)
     local tower = self.towerManager:getTowerAt(tileX, tileY)
     if not tower then
         self:hideUpgradeMenu()
         return
+    end
+    -- If the same tower and mode are already shown, avoid resetting timers to prevent blinking
+    if self.upgradeMenu and self.upgradeMenu.visible and (not self.upgradeMenu.isClosing) then
+        local sameTower = (self.upgradeMenu.tower == tower)
+        local sameMode = (self.upgradeMenu.onlyUpgradePill == (onlyUpgradePill == true))
+        if sameTower and sameMode then
+            -- Keep it visible and just ensure position is up-to-date
+            local cfg = Config.UI.TOWER_MENU or {}
+            local centerX = self.gridX + (tileX - 0.5) * self.tileSize
+            local centerY = self.gridY + (tileY - 0.5) * self.tileSize
+            self.upgradeMenu.screenX = centerX + (cfg.OFFSET_X or 0)
+            self.upgradeMenu.screenY = centerY + (cfg.OFFSET_Y or 0)
+            return
+        end
     end
     self.upgradeMenu.visible = true
     self.upgradeMenu.tower = tower
     self.upgradeMenu.openT = 0
     self.upgradeMenu.closeT = nil
     self.upgradeMenu.isClosing = false
+    self.upgradeMenu.onlyUpgradePill = (onlyUpgradePill == true)
     local centerX = self.gridX + (tileX - 0.5) * self.tileSize
     local centerY = self.gridY + (tileY - 0.5) * self.tileSize
     local cfg = Config.UI.TOWER_MENU or {}
@@ -182,13 +197,15 @@ function GridMap:rebuildUpgradeMenuHitboxes()
         w = width,
         h = rowHeight
     }
-    hitboxes[#hitboxes + 1] = {
-        id = 'destroy',
-        x = x,
-        y = y + rowHeight + (cfg.GAP or 6),
-        w = width,
-        h = rowHeight
-    }
+    if not (self.upgradeMenu and self.upgradeMenu.onlyUpgradePill) then
+        hitboxes[#hitboxes + 1] = {
+            id = 'destroy',
+            x = x,
+            y = y + rowHeight + (cfg.GAP or 6),
+            w = width,
+            h = rowHeight
+        }
+    end
     self.upgradeMenu.hitboxes = hitboxes
 end
 
@@ -997,7 +1014,7 @@ function GridMap:attemptDestroySelection()
     return true
 end
 
-function GridMap:drawUpgradeMenu(costCheck)
+function GridMap:drawUpgradeMenu(costCheck, hasMatchingCardCheck)
     local menu = self.upgradeMenu
     if not menu or (not menu.visible and not menu.isClosing) then return end
     local tower = menu.tower
@@ -1041,12 +1058,31 @@ function GridMap:drawUpgradeMenu(costCheck)
         end
     end
 
+    -- Small card requirement icon (for upgrade cost display)
+    local iconCardSmall = self.cardSmallIcon
+    if not iconCardSmall then
+        local path = string.format('%s/%s', Config.ENTITIES_PATH, 'card_small.png')
+        if love.filesystem.getInfo(path) then
+            iconCardSmall = love.graphics.newImage(path)
+            if iconCardSmall and iconCardSmall.setFilter then
+                iconCardSmall:setFilter('linear', 'linear')
+            end
+            self.cardSmallIcon = iconCardSmall
+        else
+            self.cardSmallIcon = false
+        end
+    end
+
     local currentLevel = tower.level or 1
     local targetLevel = currentLevel + 1
     local maxLevel = TowerDefs.getMaxLevel(tower.towerId or 'crossbow') or currentLevel
     local upgradeCost = TowerDefs.getUpgradeCost(tower.towerId or 'crossbow', targetLevel) or 0
     local upgradeAvailable = targetLevel <= maxLevel
     local canAfford = not costCheck or costCheck(upgradeCost)
+    local hasMatchingCard = true
+    if hasMatchingCardCheck and type(hasMatchingCardCheck) == 'function' then
+        hasMatchingCard = hasMatchingCardCheck(tower.towerId or 'crossbow') and true or false
+    end
 
     local rowX = menuX
     local rowY = menuY
@@ -1083,9 +1119,36 @@ function GridMap:drawUpgradeMenu(costCheck)
         local textY = rowY + (rowHeight - font:getHeight()) / 2
         Theme.drawShadowText(label, textX, textY, font, {1,1,1,contentAlpha})
         if costText then
-            love.graphics.setColor(1, 0.85, 0.3, contentAlpha)
+            -- Right-aligned cost group: [costText] + [plus] + [card icon]
+            local goldColor = {1, 0.85, 0.3, contentAlpha}
             local costWidth = font:getWidth(costText)
-            love.graphics.print(costText, rowX + width - padding - costWidth - 14, textY)
+            local plusText = ' + '
+            local plusWidth = font:getWidth(plusText)
+            local cardSize = math.floor((cfg.ICON_SIZE or 28) * 0.4)
+            local cardDrawW, cardDrawH = 0, 0
+            if iconCardSmall and iconCardSmall ~= false then
+                local iw, ih = iconCardSmall:getWidth(), iconCardSmall:getHeight()
+                local scale = cardSize / iw
+                cardDrawW = iw * scale
+                cardDrawH = ih * scale
+            end
+            local totalGroupW = costWidth + plusWidth + (cardDrawW > 0 and (cardDrawW + 2) or 0)
+            local groupX = rowX + width - padding - totalGroupW - 14
+            local groupY = textY
+            -- Draw cost number
+            love.graphics.setColor(goldColor)
+            love.graphics.print(costText, groupX, groupY)
+            -- Draw plus sign
+            love.graphics.print(plusText, groupX + costWidth, groupY)
+            -- Draw card icon
+            if iconCardSmall and iconCardSmall ~= false then
+                local drawX = groupX + costWidth + plusWidth
+                local drawY = groupY + (font:getHeight() - (cardDrawH > 0 and cardDrawH or 0)) / 2
+                love.graphics.setColor(1, 1, 1, contentAlpha)
+                local iw, ih = iconCardSmall:getWidth(), iconCardSmall:getHeight()
+                local scale = cardSize / iw
+                love.graphics.draw(iconCardSmall, drawX, drawY, 0, scale, scale)
+            end
         end
         rowY = rowY + rowHeight + gap
         return enabled and fadeFactor >= 1
@@ -1094,12 +1157,14 @@ function GridMap:drawUpgradeMenu(costCheck)
     if upgradeAvailable then
         local label = string.format('Upgrade LV %d', targetLevel)
         local costText = upgradeCost and upgradeCost > 0 and tostring(upgradeCost) or nil
-        menu.upgradeEnabled = drawRow(label, costText, iconUpgrade, canAfford and upgradeAvailable, 0)
+        menu.upgradeEnabled = drawRow(label, costText, iconUpgrade, canAfford and upgradeAvailable and hasMatchingCard, 0)
     else
         menu.upgradeEnabled = drawRow('Max Level', nil, iconUpgrade, false, 0)
     end
 
-    drawRow('Destroy', nil, iconDestroy, true, 1)
+    if not (menu.onlyUpgradePill) then
+        drawRow('Destroy', nil, iconDestroy, true, 1)
+    end
 
     self:rebuildUpgradeMenuHitboxes()
 end

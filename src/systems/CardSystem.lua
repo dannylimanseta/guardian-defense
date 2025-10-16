@@ -39,6 +39,25 @@ end
 CardSystem.register('place_tower', function(ctx, def, tile)
     if not def.payload or not def.payload.tower then return false end
     if not tile then return false end
+    -- If dropped on an occupied tile that has the same tower type, treat as upgrade attempt
+    if ctx.gridMap:isOccupied(tile.x, tile.y) then
+        local tower = ctx.gridMap.towerManager and ctx.gridMap.towerManager:getTowerAt(tile.x, tile.y)
+        if tower and (tower.towerId == def.payload.tower) then
+            local currentLevel = tower.level or 1
+            local targetLevel = currentLevel + 1
+            local TowerDefs = require 'src/data/towers'
+            local cost = TowerDefs.getUpgradeCost(tower.towerId or 'crossbow', targetLevel) or 0
+            if ctx.game and ctx.game.attemptTowerUpgrade then
+                return ctx.game:attemptTowerUpgrade(tower, targetLevel, cost, { requireCard = false })
+            end
+            -- Fallback: allow GridMap callback if accessible
+            if ctx.gridMap and ctx.gridMap.onTowerUpgradeRequest then
+                return ctx.gridMap.onTowerUpgradeRequest(tower, targetLevel, cost)
+            end
+            return false
+        end
+    end
+    -- Otherwise, placement onto an empty build spot
     if not ctx.gridMap:isBuildSpot(tile.x, tile.y) then return false end
     if ctx.gridMap:isOccupied(tile.x, tile.y) then return false end
     return ctx.gridMap:placeTowerAt(tile.x, tile.y, def.payload.tower, def.payload.level or 1)
