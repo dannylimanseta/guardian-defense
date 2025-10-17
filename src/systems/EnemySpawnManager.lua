@@ -32,6 +32,7 @@ function EnemySpawnManager:new(mapData)
     self.worldTileSize = Config.TILE_SIZE
     self.killedEvents = {}
     self.deathBursts = {}
+    self.armorSparks = {}
     -- Direct shader fallback for per-sprite white flash
     self.whitenShader = love.graphics.newShader([[
         extern number amount; // 0..1
@@ -141,6 +142,33 @@ function EnemySpawnManager:spawnDeathBurst(x, y)
         }
     end
     self.deathBursts[#self.deathBursts + 1] = burst
+end
+
+-- Small white spark burst on armor mitigation
+function EnemySpawnManager:spawnArmorSpark(x, y, dirX, dirY)
+    local burst = {
+        x = x,
+        y = y,
+        age = 0,
+        duration = 0.18,
+        particles = {}
+    }
+    local num = 6
+    local baseAng = math.atan2(dirY or 0, dirX or 1)
+    for i = 1, num do
+        local spread = 0.9 -- radians around base angle
+        local angle = baseAng + ((math.random() - 0.5) * 2) * spread
+        local speed = 180 + math.random() * 120
+        local size = 1.5 + math.random() * 1.0
+        burst.particles[#burst.particles + 1] = {
+            x = x,
+            y = y,
+            vx = math.cos(angle) * speed,
+            vy = math.sin(angle) * speed,
+            size = size
+        }
+    end
+    self.armorSparks[#self.armorSparks + 1] = burst
 end
 -- Add temporary shield to Sanctum Core (stacks)
 function EnemySpawnManager:addCoreShield(amount, waveTag)
@@ -290,6 +318,10 @@ function EnemySpawnManager:requestSpawn(enemyId, spawnIndex, modifiers)
         speedTps = speedTps * (1 + jitter)
     end
 
+    -- lookup base enemy def (for armor and other per-enemy stats)
+    local baseDef = (Enemies or {})[enemyId or 'enemy_1'] or {}
+    local baseArmor = baseDef.armor or 0
+
     local enemy = {
         enemyId = enemyId or 'enemy_1',
         gridX = spawnPos.x,
@@ -305,6 +337,7 @@ function EnemySpawnManager:requestSpawn(enemyId, spawnIndex, modifiers)
         hp = hp,
         maxHp = hp,
         reward = reward,
+        armor = baseArmor,
         -- hit effects
         hitFlashTime = 0,
         kox = 0, koy = 0,
@@ -340,6 +373,10 @@ function EnemySpawnManager:spawnEnemy()
     local speedWithJitter = baseSpeed * (1 + spawnJitter)
 
     -- Enemy state
+    -- lookup base enemy def (for armor and other per-enemy stats)
+    local baseDef = (Enemies or {})['enemy_1'] or {}
+    local baseArmor = baseDef.armor or 0
+
     local enemy = {
         enemyId = 'enemy_1',
         gridX = spawnPos.x,
@@ -354,6 +391,7 @@ function EnemySpawnManager:spawnEnemy()
         bobAmp = (0.02 + math.random() * 0.02), -- 0.02..0.04 of tile (smaller)
         hp = baseHp,
         maxHp = baseHp,
+        armor = baseArmor,
         -- hit effects
         hitFlashTime = 0,
         kox = 0, koy = 0, -- knockback offset (pixels)
@@ -368,7 +406,22 @@ end
 function EnemySpawnManager:damageEnemy(index, amount, hitDX, hitDY, hitStrength, isCrit, damageType)
     local e = self.enemies[index]
     if not e then return end
-    e.hp = math.max(0, e.hp - (amount or 1))
+    -- Physical-only armor mitigation with 1-damage floor on connecting hits
+    local baseDamage = math.max(0, amount or 0)
+    local isPhysical = (damageType == nil) or (damageType == 'physical')
+    local finalDamage = baseDamage
+    local mitigated = false
+    if isPhysical then
+        local armor = e.armor or 0
+        if baseDamage > 0 then
+            local reduced = baseDamage - armor
+            finalDamage = math.max(1, reduced)
+            mitigated = (armor > 0) and (finalDamage < baseDamage)
+        else
+            finalDamage = 0
+        end
+    end
+    e.hp = math.max(0, e.hp - finalDamage)
     -- Trigger hit flash and knockback
     e.hitFlashTime = Config.ENEMY.HIT_FLASH_DURATION or 0.12
     local strength = (hitStrength or 1) * Config.ENEMY.KNOCKBACK_VELOCITY_PPS
@@ -404,6 +457,16 @@ function EnemySpawnManager:damageEnemy(index, amount, hitDX, hitDY, hitStrength,
         color = {0.878, 0.494, 0.490, 1} -- #E07E7D
     end
 
+    -- spawn small armor spark burst at current world position when mitigated
+    if mitigated then
+        local wx, wy = computeEnemyWorldPosition(self, e)
+        if wx and wy then
+            local ox = (hitDX or 0) * 6
+            local oy = (hitDY or 0) * 6
+            self:spawnArmorSpark(wx + ox, wy + oy, -(hitDX or 0), -(hitDY or 0))
+        end
+    end
+
     self.floaters[#self.floaters+1] = {
         baseX = baseX + jx,
         baseY = baseY + jy,
@@ -412,7 +475,7 @@ function EnemySpawnManager:damageEnemy(index, amount, hitDX, hitDY, hitStrength,
         amp = 8, -- further reduced initial travel distance (pixels)
         holdSec = 0.5, -- linger duration at peak
         endFactor = 0.5, -- return only 35% back toward origin
-        text = (isCrit and (tostring(math.floor(amount + 0.5)) .. "!") or tostring(math.floor(amount + 0.5))),
+        text = (isCrit and (tostring(math.floor(finalDamage + 0.5)) .. "!") or tostring(math.floor(finalDamage + 0.5))),
         isCrit = isCrit and true or false,
         color = color,
         age = 0,
@@ -589,6 +652,27 @@ function EnemySpawnManager:update(dt)
         end
     end
 
+    -- Update armor spark bursts
+    if self.armorSparks and #self.armorSparks > 0 then
+        for i = #self.armorSparks, 1, -1 do
+            local burst = self.armorSparks[i]
+            burst.age = burst.age + dt
+            local lifeFrac = burst.age / (burst.duration or 0.18)
+            if lifeFrac >= 1 then
+                table.remove(self.armorSparks, i)
+            else
+                local decay = 1 - lifeFrac
+                for _, p in ipairs(burst.particles) do
+                    p.vx = p.vx * (0.9 + 0.06 * decay)
+                    p.vy = p.vy * (0.9 + 0.06 * decay)
+                    p.x = p.x + p.vx * dt
+                    p.y = p.y + p.vy * dt
+                    p.alpha = decay
+                end
+            end
+        end
+    end
+
     -- update floating damage numbers (age/fade only; position computed analytically on draw)
     for i = #self.floaters, 1, -1 do
         local f = self.floaters[i]
@@ -752,6 +836,20 @@ function EnemySpawnManager:draw(originX, originY, tileSize)
                 end)
             end
         end
+        love.graphics.setColor(1, 1, 1, 1)
+    end
+    -- draw armor sparks (small additive white dots)
+    if self.armorSparks and #self.armorSparks > 0 then
+        love.graphics.setBlendMode('add')
+        for _, burst in ipairs(self.armorSparks) do
+            for _, p in ipairs(burst.particles) do
+                local px = originX + (p.x - (self.worldOriginX or 0))
+                local py = originY + (p.y - (self.worldOriginY or 0))
+                love.graphics.setColor(1, 1, 1, (p.alpha or 1) * 0.9)
+                love.graphics.circle('fill', px, py, p.size or 2)
+            end
+        end
+        love.graphics.setBlendMode('alpha')
         love.graphics.setColor(1, 1, 1, 1)
     end
     -- draw floating damage numbers on top

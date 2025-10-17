@@ -19,6 +19,7 @@ local Enemies = {
 		-- moves slower than enemy_1
 		speedTilesPerSecond = 0.75,
 		hp = 96,
+		armor = 8,
 		-- slightly higher reward
 		reward = 2,
 		-- larger visual size
