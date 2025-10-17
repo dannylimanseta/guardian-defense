@@ -889,7 +889,7 @@ function Game:drawUpcomingEnemyIndicator()
     local gap = cfg.GAP or 8
 
     local x = 12
-    local y = 12
+    local y = 12 + 30
 
     -- If info panel is visible, it draws above and can obscure this; we do not offset.
 
@@ -905,34 +905,36 @@ function Game:drawUpcomingEnemyIndicator()
         local def = Enemies[enemyId]
         local name = (def and def.name) or enemyId
         local textW = font:getWidth(name)
-        local sidePad = 12
+        local sidePad = 18 -- add a bit more horizontal breathing room
+        local extraPadY = 6 -- add vertical padding above/below content
         local pillW = sidePad + iconSize + iconSpacing + textW + sidePad
+        local pillH = rowHeight + extraPadY * 2
 
         -- background pill (fixed 0.3 alpha)
         love.graphics.setColor(0, 0, 0, 0.3)
-        love.graphics.rectangle('fill', x, y, pillW, rowHeight, rowHeight / 2, rowHeight / 2)
+        love.graphics.rectangle('fill', x, y, pillW, pillH, rowHeight / 2, rowHeight / 2)
 
         -- icon
         local icon = self:loadEnemyIcon(enemyId)
         love.graphics.setColor(1, 1, 1, bgAlpha)
         if icon then
             local scale = iconSize / icon:getWidth()
-            local drawY = y + (rowHeight - icon:getHeight() * scale) * 0.5
+            local drawY = y + (pillH - icon:getHeight() * scale) * 0.5
             love.graphics.draw(icon, x + sidePad, drawY, 0, scale, scale)
         else
             -- fallback circle
             love.graphics.setColor(0.8, 0.25, 0.3, bgAlpha)
-            love.graphics.circle('fill', x + sidePad + iconSize / 2, y + rowHeight / 2, iconSize * 0.35)
+            love.graphics.circle('fill', x + sidePad + iconSize / 2, y + pillH / 2, iconSize * 0.35)
             love.graphics.setColor(1, 1, 1, bgAlpha)
         end
 
         -- text
         love.graphics.setFont(font)
         local textX = x + sidePad + iconSize + iconSpacing
-        local textY = y + (rowHeight - font:getHeight()) * 0.5
+        local textY = y + (pillH - font:getHeight()) * 0.5
         Theme.drawShadowText(name, textX, textY, font, {1,1,1,bgAlpha})
 
-        y = y + rowHeight + gap
+        y = y + pillH + gap
     end
 end
 

@@ -405,7 +405,7 @@ function TowerManager:draw(gridX, gridY, tileSize)
             local scaleX = tileSize / self.towerBaseSprite:getWidth()
             local scaleY = tileSize / self.towerBaseSprite:getHeight()
             local drawX = tileX + (tileSize - self.towerBaseSprite:getWidth() * scaleX) / 2
-            local drawY = tileY + (tileSize - self.towerBaseSprite:getHeight() * scaleY) / 2 + oy + (t.destroyBaseOffsetY or 0)
+            local drawY = tileY + (tileSize - self.towerBaseSprite:getHeight() * scaleY) / 2 + oy + (t.destroyBaseOffsetY or 0) + (Config.TOWER.DRAW_Y_OFFSET or 0)
             love.graphics.setColor(1,1,1,alpha * ((t.destroyBaseAlpha ~= nil) and t.destroyBaseAlpha or 1))
             love.graphics.draw(self.towerBaseSprite, drawX, drawY, 0, scaleX * scale, scaleY * scale)
         end
@@ -439,7 +439,7 @@ function TowerManager:draw(gridX, gridY, tileSize)
             local scaleX = tileSize / turretSprite:getWidth()
             local scaleY = tileSize / turretSprite:getHeight()
             local cx = tileX + tileSize / 2
-            local cy = tileY + tileSize / 2 + offsetY
+            local cy = tileY + tileSize / 2 + offsetY + (Config.TOWER.DRAW_Y_OFFSET or 0)
             local angle = (t.angleCurrent or 0)
             local recoil = (t.recoil or 0)
             local ox = -math.cos(angle) * recoil
@@ -548,7 +548,7 @@ function TowerManager:drawPreview(gridX, gridY, tileSize, tileXIdx, tileYIdx, to
         local scaleX = tileSize / self.towerBaseSprite:getWidth()
         local scaleY = tileSize / self.towerBaseSprite:getHeight()
         local drawX = ax + (tileSize - self.towerBaseSprite:getWidth() * scaleX) / 2
-        local drawY = ay + (tileSize - self.towerBaseSprite:getHeight() * scaleY) / 2
+        local drawY = ay + (tileSize - self.towerBaseSprite:getHeight() * scaleY) / 2 + (Config.TOWER.DRAW_Y_OFFSET or 0)
         love.graphics.setColor(1,1,1,a)
         love.graphics.draw(self.towerBaseSprite, drawX, drawY, 0, scaleX, scaleY)
     end
@@ -564,7 +564,7 @@ function TowerManager:drawPreview(gridX, gridY, tileSize, tileXIdx, tileYIdx, to
         local scaleX = tileSize / turretSprite:getWidth()
         local scaleY = tileSize / turretSprite:getHeight()
         local cx = ax + tileSize / 2
-        local cy = ay + tileSize / 2
+        local cy = ay + tileSize / 2 + (Config.TOWER.DRAW_Y_OFFSET or 0)
         love.graphics.setColor(1,1,1,a)
         love.graphics.draw(
             turretSprite,

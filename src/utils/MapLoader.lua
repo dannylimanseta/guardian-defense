@@ -38,6 +38,11 @@ local TILE_DEFINITIONS = {
         type = 'pillar',
         image = 'pillars_1.png',
         opacity = 1
+    },
+    [7] = {
+        type = 'wall',
+        image = 'wall_1.png',
+        opacity = 1
     }
 }
 

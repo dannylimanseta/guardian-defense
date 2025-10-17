@@ -119,10 +119,8 @@ function GridMap:init()
     -- Tower sprites (lazy-loaded on first draw)
     self.towerBaseSprite = nil
     self.towerCrossbowSprite = nil
-    -- glow effect for placement hover circle
-    self.hoverGlow = Moonshine(Config.LOGICAL_WIDTH, Config.LOGICAL_HEIGHT, Moonshine.effects.glow)
-    self.hoverGlow.glow.min_luma = 0.0
-    self.hoverGlow.glow.strength = 5
+    -- hoverGlow effect removed (no blurred hover circle during placement)
+    self.hoverGlow = nil
     -- Path effects storage (per-tile) and visuals cache
     self.pathEffects = {}
     self._bonechillSprites = nil
@@ -275,23 +273,18 @@ function GridMap:draw()
                         local tileX = self.gridX + (tile.x - 1) * self.tileSize
                         local tileY = self.gridY + (tile.y - 1) * self.tileSize
 
-                        if isSpecial and tile.type ~= "core" then
-                            tileY = tileY - 2 * self.tileSize
-                        end
-
                         local scaleX = self.tileSize / (tile.width or self.sourceTileWidth)
                         local scaleY = self.tileSize / (tile.height or self.sourceTileHeight)
-                        
-                        -- Center the heart tile in its grid cell (no manual grid shift)
-                        if tile.type == "core" then
-                            -- If a TMX core object exists, skip drawing the tile-based core to follow TMX object exactly
-                            if self.specialTiles and self.specialTiles.core and self.specialTiles.core.px then
-                                goto skip_tile_draw
-                            end
-                            local offsetX = (self.tileSize - sprite:getWidth() * scaleX) / 2
-                            local offsetY = (self.tileSize - sprite:getHeight() * scaleY) / 2
-                            tileX = tileX + offsetX
-                            tileY = tileY + offsetY
+
+                        -- Follow Tiled orthogonal alignment: bottom-left of the sprite aligns to tile cell bottom-left.
+                        -- When sprite height exceeds tile size, raise it so its base sits on the cell bottom.
+                        local spriteW = sprite:getWidth() * scaleX
+                        local spriteH = sprite:getHeight() * scaleY
+                        local drawX = tileX
+                        local drawY = tileY + (self.tileSize - spriteH)
+                        -- If a TMX core object exists, skip drawing the tile-based core to follow TMX object exactly
+                        if tile.type == "core" and self.specialTiles and self.specialTiles.core and self.specialTiles.core.px then
+                            goto skip_tile_draw
                         end
                         
                         -- Support flipped tiles from TMX, including diagonal (rotated) flag
@@ -309,7 +302,9 @@ function GridMap:draw()
                             -- Horizontal/vertical flips without rotation
                             local sx = scaleX * ((tile.flipX and -1) or 1)
                             local sy = scaleY * ((tile.flipY and -1) or 1)
-                            love.graphics.draw(sprite, tileX + (tile.flipX and sprite:getWidth() * scaleX or 0), tileY + (tile.flipY and sprite:getHeight() * scaleY or 0), 0, sx, sy)
+                            local ox = tile.flipX and spriteW or 0
+                            local oy = tile.flipY and spriteH or 0
+                            love.graphics.draw(sprite, drawX + ox, drawY + oy, 0, sx, sy)
                         end
                         -- During entrance fade, draw a closed-door overlay inversely to tile opacity
                         if tile.type == 'entrance' then
@@ -327,7 +322,14 @@ function GridMap:draw()
                                     love.graphics.setColor(1, 1, 1, alpha)
                                     local csx = scaleX * ((tile.flipX and -1) or 1)
                                     local csy = scaleY * ((tile.flipY and -1) or 1)
-                                    love.graphics.draw(self._entranceClosedImg, tileX + (tile.flipX and self._entranceClosedImg:getWidth() * scaleX or 0), tileY + (tile.flipY and self._entranceClosedImg:getHeight() * scaleY or 0), 0, csx, csy)
+                                    local ciw = self._entranceClosedImg:getWidth() * scaleX
+                                    local cih = self._entranceClosedImg:getHeight() * scaleY
+                                    local cox = tile.flipX and ciw or 0
+                                    local coy = tile.flipY and cih or 0
+                                    -- align bottom-left like the base sprite
+                                    local cdrawX = tileX
+                                    local cdrawY = tileY + (self.tileSize - cih)
+                                    love.graphics.draw(self._entranceClosedImg, cdrawX + cox, cdrawY + coy, 0, csx, csy)
                                     love.graphics.setColor(1, 1, 1, 1)
                                 end
                             end
@@ -466,20 +468,7 @@ function GridMap:draw()
 
     love.graphics.setColor(1, 1, 1, 1)
 
-    if self.hoveredTile and self.showHoverRect then
-        local tileX = self.gridX + (self.hoveredTile.x - 1) * self.tileSize
-        local tileY = self.gridY + (self.hoveredTile.y - 1) * self.tileSize
-        local cx = tileX + self.tileSize * 0.5
-        local cy = tileY + self.tileSize * 0.5
-        local r = self.tileSize * 0.07
-        -- draw the glow-blurred circle via moonshine glow chain
-        self.hoverGlow(function()
-            love.graphics.setBlendMode('add')
-            love.graphics.setColor(1, 1, 1, 1.0)
-            love.graphics.circle('fill', cx, cy, r)
-            love.graphics.setBlendMode('alpha')
-        end)
-    end
+    -- Removed blurred hover circle while dragging over build spots
     
     -- Draw selected tile
     if self.selectedTile then

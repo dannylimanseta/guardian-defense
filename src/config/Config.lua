@@ -41,7 +41,7 @@ Config.UI = {
     COIN_TRACKER = {
         ICON = 'coin_1.png',
         MARGIN = 18,
-        OFFSET_Y = 0,
+        OFFSET_Y = 20,
         ICON_SCALE = 0.7,
         ICON_TEXT_SPACING = 12,
         FONT = 'BOLD_LARGE',
@@ -51,7 +51,7 @@ Config.UI = {
     ENERGY_TRACKER = {
         ICON = 'energy.png',
         MARGIN = 18,
-        OFFSET_Y = 0,
+        OFFSET_Y = 20,
         ICON_SCALE = 0.35,
         ICON_TEXT_SPACING = 12,
         FONT = 'BOLD_LARGE',
@@ -191,6 +191,9 @@ Config.TOWER = {
         BOUNCE_SCALE = 0.06,
         BOUNCE_DURATION = 0.25
     }
+    ,
+    -- Y offset (pixels) applied to all towers when drawn (negative moves up)
+    DRAW_Y_OFFSET = -7
 }
 
 -- Deck / Card System Settings
