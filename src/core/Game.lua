@@ -78,8 +78,9 @@ function Game:init()
     -- Initialize deck/hand systems
     self.deck = DeckManager:new()
     self.deck:loadOrCreateDeck()
-    self.deck:startRun()
+    -- Create HandUI before starting the run so the initial intermission triggers slide-in
     self.handUI = HandUI:new(self.deck)
+    self.deck:startRun()
 
     -- Initialize wave manager with current stage, spawn system, and deck manager (for intermission hooks)
     self.waveManager = WaveManager:new('level_2', self.gridMap.enemySpawnManager, self.deck)
