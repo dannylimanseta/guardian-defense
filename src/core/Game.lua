@@ -11,6 +11,7 @@ local HandUI = require 'src/ui/HandUI'
 local WaveManager = require 'src/systems/WaveManager'
 local EventBus = require 'src/core/EventBus'
 local CardSystem = require 'src/systems/CardSystem'
+local Enemies = require 'src/data/enemies'
 
 local Game = {}
 
@@ -141,6 +142,8 @@ function Game:draw()
     if Config.UI.SHOW_CORE_HEALTH then
         self:drawHUD()
     end
+    -- Draw upcoming enemy indicator during intermission
+    self:drawUpcomingEnemyIndicator()
     self:drawCoinTracker()
     self:drawEnergyTracker()
     self:drawStartWaveButton()
@@ -149,8 +152,12 @@ function Game:draw()
             return (self.coinCount or 0) >= (cost or 0)
         end
         local hasMatchingCardCheck = function(towerId)
-            if not self.deck or not self.deck.hasTowerCardInHand then return true end
-            return self.deck:hasTowerCardInHand(towerId)
+            if not self.deck then return true end
+            if not self.deck.findTowerCardIndexInHand or not self.deck.canPlayCard then return true end
+            local idx, id = self.deck:findTowerCardIndexInHand(towerId)
+            if not idx or not id then return false end
+            local ok = self.deck:canPlayCard(id)
+            return ok
         end
         self.gridMap:drawUpgradeMenu(costCheck, hasMatchingCardCheck)
     end
@@ -843,6 +850,90 @@ function Game:isStartWaveEligible()
     -- and there must be more waves left
     local hasNext = (self.waveManager.getNextWaveIndex and self.waveManager.getNextWaveIndex(self.waveManager) <= #((self.waveManager.stage or {}).waves or {}))
     return noActive and noEnemies and hasNext
+end
+
+-- Lazy-load enemy icon by enemyId; defaults to enemyId .. '.png' in entities
+function Game:loadEnemyIcon(enemyId)
+    self._enemyIcons = self._enemyIcons or {}
+    if self._enemyIcons[enemyId] ~= nil then return self._enemyIcons[enemyId] end
+    local filename = enemyId .. '.png'
+    local path = string.format('%s/%s', Config.ENTITIES_PATH, filename)
+    if love.filesystem.getInfo(path) then
+        local ok, img = pcall(love.graphics.newImage, path)
+        if ok and img then
+            if img.setFilter then img:setFilter('linear', 'linear') end
+            self._enemyIcons[enemyId] = img
+            return img
+        end
+    end
+    self._enemyIcons[enemyId] = false
+    return nil
+end
+
+-- Draw upcoming enemy indicator during intermission at top-left, stacked rows, pill style
+function Game:drawUpcomingEnemyIndicator()
+    if not self.waveManager then return end
+    -- Only show during intermission: reuse Start Wave eligibility (no active waves, no enemies alive, has next)
+    if not self:isStartWaveEligible() then return end
+
+    local enemyIds = self.waveManager.getUpcomingWaveEnemyTypes and self.waveManager:getUpcomingWaveEnemyTypes() or {}
+    if not enemyIds or #enemyIds == 0 then return end
+
+    -- Use upgrade pill style
+    local cfg = Config.UI.TOWER_MENU or {}
+    local font = Theme.FONTS.BOLD_MEDIUM
+    local rowHeight = cfg.ROW_HEIGHT or 44
+    local padding = cfg.PADDING or 12
+    local iconSize = cfg.ICON_SIZE or 28
+    local iconSpacing = cfg.ICON_TEXT_SPACING or 10
+    local gap = cfg.GAP or 8
+
+    local x = 12
+    local y = 12
+
+    -- If info panel is visible, it draws above and can obscure this; we do not offset.
+
+    -- Compute pulsating background alpha between 0.2 and 0.4
+    local t = (love.timer and love.timer.getTime and love.timer.getTime()) or 0
+    local minAlpha, maxAlpha = 0.6, 1.0
+    local freqHz = 1.2 -- gentle pulse frequency
+    local phase = (math.sin(t * 2 * math.pi * freqHz) + 1) * 0.5 -- 0..1
+    local bgAlpha = minAlpha + (maxAlpha - minAlpha) * phase
+
+    for _, enemyId in ipairs(enemyIds) do
+        -- compute dynamic pill width based on content (icon + spacing + text + side padding)
+        local def = Enemies[enemyId]
+        local name = (def and def.name) or enemyId
+        local textW = font:getWidth(name)
+        local sidePad = 12
+        local pillW = sidePad + iconSize + iconSpacing + textW + sidePad
+
+        -- background pill (fixed 0.3 alpha)
+        love.graphics.setColor(0, 0, 0, 0.3)
+        love.graphics.rectangle('fill', x, y, pillW, rowHeight, rowHeight / 2, rowHeight / 2)
+
+        -- icon
+        local icon = self:loadEnemyIcon(enemyId)
+        love.graphics.setColor(1, 1, 1, bgAlpha)
+        if icon then
+            local scale = iconSize / icon:getWidth()
+            local drawY = y + (rowHeight - icon:getHeight() * scale) * 0.5
+            love.graphics.draw(icon, x + sidePad, drawY, 0, scale, scale)
+        else
+            -- fallback circle
+            love.graphics.setColor(0.8, 0.25, 0.3, bgAlpha)
+            love.graphics.circle('fill', x + sidePad + iconSize / 2, y + rowHeight / 2, iconSize * 0.35)
+            love.graphics.setColor(1, 1, 1, bgAlpha)
+        end
+
+        -- text
+        love.graphics.setFont(font)
+        local textX = x + sidePad + iconSize + iconSpacing
+        local textY = y + (rowHeight - font:getHeight()) * 0.5
+        Theme.drawShadowText(name, textX, textY, font, {1,1,1,bgAlpha})
+
+        y = y + rowHeight + gap
+    end
 end
 
 function Game:attemptTowerUpgrade(tower, targetLevel, cost, opts)

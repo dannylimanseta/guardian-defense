@@ -281,4 +281,25 @@ function WaveManager:getCurrentWaveIndex()
     return wave and wave.index or nil
 end
 
+-- Returns a list of unique enemyIds for the upcoming wave during intermission.
+-- Only valid when there are no active waves and there is a next wave.
+function WaveManager:getUpcomingWaveEnemyTypes()
+    -- If waves are active, we do not show the indicator per spec
+    if self.activeWaves and #self.activeWaves > 0 then return {} end
+    local idx = self.nextWaveIndex or 1
+    local waveDef = (self.stage and self.stage.waves and self.stage.waves[idx]) or nil
+    if not waveDef then return {} end
+    local seen = {}
+    local out = {}
+    local schedule = waveDef.schedule or {}
+    for _, ev in ipairs(schedule) do
+        local enemyId = ev.type or 'enemy_1'
+        if not seen[enemyId] then
+            seen[enemyId] = true
+            table.insert(out, enemyId)
+        end
+    end
+    return out
+end
+
 return WaveManager

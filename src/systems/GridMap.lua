@@ -918,8 +918,8 @@ function GridMap:drawInfoPanel()
 		local panelH = pad + titleH + 6 + levelH + 8 + statsRows * lineH + dividerExtra + (buffRows * lineH) + pad
         -- update fade alpha
         self.infoPanelAlpha = math.min(1, (self.infoPanelAlpha or 0) + 6 * love.timer.getDelta())
-        love.graphics.setColor(0, 0, 0, 0.3 * (self.infoPanelAlpha or 1))
-        love.graphics.rectangle('fill', x, y, panelW, panelH)
+        love.graphics.setColor(0, 0, 0, 0.5 * (self.infoPanelAlpha or 1))
+        love.graphics.rectangle('fill', x, y, panelW, panelH, 5, 5)
         local accent = {0.8627, 0.7608, 0.4588, 1} -- #DCC275
         local tx = x + pad
         local ty = y + pad
